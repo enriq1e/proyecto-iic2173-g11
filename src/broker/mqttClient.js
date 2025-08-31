@@ -26,7 +26,6 @@ client.on("connect", () => {
   });
 });
 
-
 // Manejo de mensajes
 client.on("message", async (topic, message) => {
   try {
@@ -70,7 +69,6 @@ client.on("message", async (topic, message) => {
     console.error("Error procesando mensaje:", err.message);
   }
 });
-
 
 // Errores de conexion
 client.on("error", (err) => {

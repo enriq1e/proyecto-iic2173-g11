@@ -42,7 +42,7 @@ module.exports = {
         allowNull: false,
         type: Sequelize.STRING
       },
-      is_proyect: {
+      is_project: {
         allowNull: false,
         type: Sequelize.BOOLEAN
       },

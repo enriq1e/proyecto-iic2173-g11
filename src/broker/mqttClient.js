@@ -1,8 +1,6 @@
-import mqtt from "mqtt";
-import dotenv from "dotenv";
-/*
-import { sequelize, Property } from "./db.js";
-*/
+const mqtt = require("mqtt");
+const db = require("../models");
+const dotenv = require("dotenv");
 
 dotenv.config();
 
@@ -29,40 +27,52 @@ client.on("connect", () => {
 });
 
 
-// Recibir mensajes
+// Manejo de mensajes
 client.on("message", async (topic, message) => {
   try {
-    console.log("Mensaje recibido:", message.toString());
-
-    // Parsear JSON (los mensajes llegan como string JSON)
     const data = JSON.parse(message.toString());
 
-    /*
-    // VER SI YA EXISTE ANTES DE GUARDAR
-    // Guardar en DB
-    await Property.create({
-      name: data.name,
-      price: data.price,
-      currency: data.currency,
-      bedrooms: data.bedrooms,
-      bathrooms: data.bathrooms,
-      m2: data.m2,
-      location: data.location,
-      img: data.img,
-      url: data.url,
-      is_project: data.is_project,
-      timestamp: new Date(data.timestamp),
+    // Buscamos si existe una propiedad igual a la que estamos insertando
+    const existing = await db.Propertie.findOne({
+      where: { url: data.url, name: data.name }
     });
-    */
 
-    console.log("Propiedad guardada en la base de datos");
+    if (existing) 
+    {
+      // Si existe actualizamos offers y timestamp
+      await existing.update({
+        offers: existing.offers + 1,
+        timestamp: new Date(data.timestamp),
+      });
+      console.log("Propiedad actualizada:", existing.name);
+    } 
+    else 
+    {
+      // Si no existe creamos una nueva
+      await db.Propertie.create({
+        name: data.name,
+        price: data.price,
+        currency: data.currency,
+        bedrooms: data.bedrooms,
+        bathrooms: data.bathrooms,
+        m2: data.m2,
+        location: data.location,
+        img: data.img,
+        url: data.url,
+        is_project: data.is_project,
+        timestamp: new Date(data.timestamp),
+        offers: 1,
+      });
+      console.log("Propiedad creada:", data.name);
+    }
+
   } catch (err) {
     console.error("Error procesando mensaje:", err.message);
   }
 });
 
 
-// En caso de errores de conexión
+// Errores de conexion
 client.on("error", (err) => {
-  console.error("Error en conexion:", err);
+  console.error("Error:", err);
 });

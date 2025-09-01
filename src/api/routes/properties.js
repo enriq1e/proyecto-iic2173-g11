@@ -1,4 +1,4 @@
-const Router = require("koa-router");
+const Router = require("@koa/router");
 const { Op, fn, col, where } = require("sequelize");
 
 const router = new Router();

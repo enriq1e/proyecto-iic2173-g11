@@ -3,6 +3,34 @@ const { Op, fn, col, where } = require("sequelize");
 
 const router = new Router();
 
+router.post("post.propertie", "/", async (ctx) => {
+  try {
+    const data = ctx.request.body;
+
+    const [propertie, created] = await ctx.orm.Propertie.findOrCreate({
+      where: { url: data.url, name: data.name },
+      defaults: { ...data, offers: 1 }
+    });
+
+    if (!created) {
+        propertie.offers += 1;
+        propertie.timestamp = new Date(data.timestamp);
+        await propertie.save();
+    }
+
+    ctx.body = propertie;
+    if (created) {
+        ctx.status = 201;
+        return;
+    }
+    ctx.status = 200;
+
+  } catch (error) {
+    ctx.body = error;
+    ctx.status = 400;
+  }
+});
+
 router.get("index", "/", async (ctx) => {
     try {
         // filtros
@@ -27,7 +55,7 @@ router.get("index", "/", async (ctx) => {
             );
         }
 
-        // aplicamos los filtros y buscamos
+        // aplicamos los filtros y buscamo
         const properties = await ctx.orm.Propertie.findAll({ 
             where: filters,
             limit,
@@ -37,6 +65,7 @@ router.get("index", "/", async (ctx) => {
 
         ctx.body = properties;
         ctx.status = 200;
+
     } catch (error) {
         ctx.body = error;
         ctx.status = 400;
@@ -53,6 +82,7 @@ router.get("show.one.propertie", "/:id", async (ctx) => {
         }
         ctx.body = propertie;
         ctx.status = 200;
+
     } catch(error) {
         ctx.body = error;
         ctx.status = 400;

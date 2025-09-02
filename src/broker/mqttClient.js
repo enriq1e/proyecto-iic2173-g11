@@ -1,5 +1,5 @@
 const mqtt = require("mqtt");
-const db = require("../models");
+const axios = require("axios");
 const dotenv = require("dotenv");
 
 dotenv.config();
@@ -17,9 +17,9 @@ const client = mqtt.connect({
 // Conectarse al broker
 client.on("connect", () => {
   console.log("Conectado al broker");
-  client.subscribe(process.env.TOPIC, (err) => {
-    if (err) {
-      console.error("Error al suscribirse:", err);
+  client.subscribe(process.env.TOPIC, (error) => {
+    if (error) {
+      console.error("Error al suscribirse:", error);
     } else {
       console.log(`Suscrito a: ${process.env.TOPIC}`);
     }
@@ -30,47 +30,14 @@ client.on("connect", () => {
 client.on("message", async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
-
-    // Buscamos si existe una propiedad igual a la que estamos insertando
-    const existing = await db.Propertie.findOne({
-      where: { url: data.url, name: data.name }
-    });
-
-    if (existing) 
-    {
-      // Si existe actualizamos offers y timestamp
-      await existing.update({
-        offers: existing.offers + 1,
-        timestamp: new Date(data.timestamp),
-      });
-      console.log("Propiedad actualizada:", existing.name);
-    } 
-    else 
-    {
-      // Si no existe creamos una nueva
-      await db.Propertie.create({
-        name: data.name,
-        price: data.price,
-        currency: data.currency,
-        bedrooms: data.bedrooms,
-        bathrooms: data.bathrooms,
-        m2: data.m2,
-        location: data.location,
-        img: data.img,
-        url: data.url,
-        is_project: data.is_project,
-        timestamp: new Date(data.timestamp),
-        offers: 1,
-      });
-      console.log("Propiedad creada:", data.name);
-    }
-
-  } catch (err) {
-    console.error("Error procesando mensaje:", err.message);
+    await axios.post(`${process.env.API_URL}/properties`, data);
+    console.log("Propiedad enviada a la api para post")
+  } catch (error) {
+    console.error("Error enviando propiedad a la API:", error.message);
   }
 });
 
 // Errores de conexion
-client.on("error", (err) => {
-  console.error("Error:", err);
+client.on("error", (error) => {
+  console.error("Error:", error);
 });

@@ -16,10 +16,6 @@ router.get("/", (ctx) => {
   ctx.body = "K-On! >> SNK";
 });
 
-router.get("/k-on", (ctx) => {
-  ctx.body = { msg: "besto seinen" };
-});
-
 // Router
 app.use(router.routes());
 app.use(router.allowedMethods());

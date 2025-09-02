@@ -30,7 +30,7 @@ client.on("connect", () => {
 client.on("message", async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
-    await axios.post(`${process.env.API_URL}/properties`, data);
+    await axios.post(`${process.env.API_URL}/properties`, data); // mando un post a la api para que esta suba la propertie a la bdd
     console.log("Propiedad enviada a la api para post")
   } catch (error) {
     console.error("Error enviando propiedad a la API:", error.message);

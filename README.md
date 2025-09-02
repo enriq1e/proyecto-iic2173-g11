@@ -5,7 +5,7 @@
 
 ## README.md:
 - Niveles de logro
-- Link a la api
+- Link a la API
 - IP de su instancia
 
 ## Link API

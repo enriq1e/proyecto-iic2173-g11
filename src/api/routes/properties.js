@@ -7,11 +7,13 @@ router.post("post.propertie", "/", async (ctx) => {
   try {
     const data = ctx.request.body;
 
+    // vemos si creamos la propiedad o si ya existe para actualizar "offers"
     const [propertie, created] = await ctx.orm.Propertie.findOrCreate({
       where: { url: data.url, name: data.name },
       defaults: { ...data, offers: 1 }
     });
 
+    // si existe actualizamos "offers" y el "timestapm"
     if (!created) {
         propertie.offers += 1;
         propertie.timestamp = new Date(data.timestamp);
@@ -50,7 +52,7 @@ router.get("index", "/", async (ctx) => {
         }
         if (ctx.query.date) {
             filters[Op.and] = where(
-                fn("DATE", col("timestamp")),
+                fn("DATE", col("timestamp")), // con esto elimino la hora pra que solo compare la fecha
                 ctx.query.date
             );
         }

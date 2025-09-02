@@ -28,7 +28,7 @@
 ### Requisitos No Funcionales:
 - RNF1: Logrado
 - RNF2: No Logrado
-- RNF3: No Logrado
+- RNF3: Logrado
 - RNF4: Logrado
 - RNF5: Logrado*
 - RNF6: Logrado
@@ -42,5 +42,7 @@
 - RNF2: Logrado
 - RNF3: Logrado
 
-## Niveles de Logor - Parte Variable
-- No se realizó ninguna de las partes variables
+## Niveles de Logro - Parte Variable - Balanceo de Carga con Nginx
+
+- RF1: Logrado
+- RF2: Logrado

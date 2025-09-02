@@ -22,6 +22,52 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
 
+  api-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api_service_1
+    command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
+    ports:
+      - "3000:${PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: "${DB_HOST}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASS}"
+      DB_NAME: "${DB_NAME}"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+
+  api-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api_service_2
+    command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
+    ports:
+      - "3002:${PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: "${DB_HOST}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASS}"
+      DB_NAME: "${DB_NAME}"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+
   broker:
     build: .
     container_name: broker_service

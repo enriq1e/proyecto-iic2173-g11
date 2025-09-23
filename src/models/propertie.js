@@ -18,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
     price: DataTypes.FLOAT,
     currency: DataTypes.STRING,
     bedrooms: DataTypes.STRING,
+    bathrooms: DataTypes.STRING, //faltaban los baños
     m2: DataTypes.STRING,
     location: DataTypes.STRING,
     img: DataTypes.STRING,

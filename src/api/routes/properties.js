@@ -1,5 +1,5 @@
 const Router = require("@koa/router");
-const { Op, fn, col, where } = require("sequelize");
+const { Op, fn, col, where, Sequelize  } = require("sequelize");
 
 const router = new Router();
 
@@ -40,12 +40,24 @@ router.get("index", "/", async (ctx) => {
 
         // paginacion y limite de 25
         const page = parseInt(ctx.query.page) || 1;
-        const limit = 25;
+        const limit = parseInt(ctx.query.limit) || 25; // para que se pueda cambiar
         const offset = (page - 1) * limit;
 
         // filtros por precio, lugar y fecha
         if (ctx.query.price) {
-            filters.price = { [Op.lt]: parseFloat(ctx.query.price) };
+            const maxPrice = parseFloat(ctx.query.price);
+            const UF_value = 40000; //para que tambien filtre las propiedades con UF
+
+            filters[Op.or] = [
+                {
+                currency: "$",
+                price: { [Op.lt]: maxPrice },
+                },
+                Sequelize.where(
+                Sequelize.literal(`"Propertie"."currency" = 'UF' AND CAST("Propertie"."price" AS FLOAT) * ${UF_value}`),
+                { [Op.lt]: maxPrice }
+                ),
+            ];
         }
         if (ctx.query.location) {
             filters.location = { [Op.iLike]: `%${ctx.query.location}%` };

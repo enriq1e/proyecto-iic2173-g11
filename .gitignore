@@ -3,3 +3,4 @@ node_modules/
 /auth-service/.env
 *.pem
 *.txt
+*.pdf

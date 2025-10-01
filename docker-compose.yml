@@ -21,6 +21,7 @@ services:
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
+    restart: unless-stopped   #RNF10
 
   api-1:
     build:
@@ -75,8 +76,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      api:
+        condition: service_started
     env_file:
       - .env
+    restart: unless-stopped   #RNF10
     
   db:
     image: postgres:13-alpine
@@ -93,7 +97,8 @@ services:
       POSTGRES_PASSWORD: "${DB_PASS}"
       POSTGRES_DB: "${DB_NAME}"
     volumes:
-      - postgres_data:/var/lib/postgresql/data 
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped   #RNF10
 
 volumes:
   postgres_data:

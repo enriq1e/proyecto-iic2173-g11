@@ -37,9 +37,9 @@ client.on("connect", () => {
 });
 
 // Función para enviar solicitud de compra
-function sendPurchaseRequest(propertyUrl) {
+function sendPurchaseRequest(propertyUrl, requestId) {
   const purchaseRequest = {
-    request_id: uuidv4(),
+    request_id: requestId || uuidv4(),
     group_id: process.env.GROUP_ID,
     timestamp: new Date().toISOString(),
     url: propertyUrl,
@@ -84,7 +84,6 @@ client.on("message", async (topic, message) => {
           console.error(`Error reduciendo offers para grupo ${data.group_id}:`, error.response?.data);
         }
         
-
       
       }
     }

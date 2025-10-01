@@ -1,16 +1,15 @@
-'use strict';
+// src/models/propertie.js
 
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class Propertie extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
-      // define association here
+      // 1 Propertie tiene muchos PurchaseIntent (FK: propertieId)
+      Propertie.hasMany(models.PurchaseIntent, {
+        foreignKey: 'propertieId',
+        as: 'purchaseIntents',
+      });
     }
   }
   Propertie.init({

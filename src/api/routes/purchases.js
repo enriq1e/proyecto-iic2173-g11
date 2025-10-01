@@ -143,8 +143,11 @@ router.get("/", authenticate, async (ctx) => {
   const purchases = await ctx.orm.PurchaseIntent.findAll({
     where: { email },
     order: [['createdAt', 'DESC']],
-    // si quieres incluir datos de la propiedad:
-    // include: [{ model: ctx.orm.Propertie, attributes: ['id','name','url','location'] }]
+    include: [{
+      model: ctx.orm.Propertie,
+      as: 'propertie', //debe coincidir con el nombre del modelo
+      attributes: ['id', 'name', 'url', 'location', 'price', 'currency', 'img'],
+    }],
   });
 
   ctx.body = purchases;

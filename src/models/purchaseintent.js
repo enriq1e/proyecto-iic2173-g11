@@ -1,17 +1,14 @@
 'use strict';
-const {
-  Model
-} = require('sequelize');
+const { Model } = require('sequelize');
+
 module.exports = (sequelize, DataTypes) => {
   class PurchaseIntent extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
-      // define association here
-      PurchaseIntent.belongsTo(models.Propertie, { foreignKey: 'propertieId' });
+      // cada intento pertenece a UNA propiedad
+      PurchaseIntent.belongsTo(models.Propertie, {
+        foreignKey: 'propertieId',
+        as: 'propertie',
+      });
     }
   }
   PurchaseIntent.init({
@@ -24,6 +21,9 @@ module.exports = (sequelize, DataTypes) => {
     price_amount:   { type: DataTypes.DECIMAL(18,2), allowNull: false },
     price_currency: { type: DataTypes.STRING, allowNull: false, defaultValue: 'CLP' },
     email:          { type: DataTypes.STRING, allowNull: false },
+
+      // FK a la propiedad
+    propertieId:    { type: DataTypes.INTEGER, allowNull: false },
   }, {
     sequelize,
     modelName: 'PurchaseIntent',

@@ -136,4 +136,29 @@ router.post("reduce.offers", "/reduce-offers", async (ctx) => {
   }
 });
 
+// Endpoint para listar compras del usuario autenticado (RF04)
+router.get("/", authenticate, async (ctx) => {
+  const email = ctx.state.user?.email || ctx.state.user?.mail;
+
+  const purchases = await ctx.orm.PurchaseIntent.findAll({
+    where: { email },
+    order: [['createdAt', 'DESC']],
+    // si quieres incluir datos de la propiedad:
+    // include: [{ model: ctx.orm.Propertie, attributes: ['id','name','url','location'] }]
+  });
+
+  ctx.body = purchases;
+});
+
+//Endpoint para obtener detalle de una compra por ID (RF04) (no se si es necesario)
+router.get("/:id", authenticate, async (ctx) => {
+  const email = ctx.state.user?.email || ctx.state.user?.mail;
+  const p = await ctx.orm.PurchaseIntent.findOne({
+    where: { id: ctx.params.id, email }
+  });
+  if (!p) { ctx.status = 404; ctx.body = { error: 'No encontrada' }; return; }
+  ctx.body = p;
+});
+
+
 module.exports = router;

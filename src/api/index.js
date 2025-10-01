@@ -1,8 +1,7 @@
 const app = require("./app");
 const db = require("../models");
-const dotenv = require("dotenv");
-
-dotenv.config();
+//const dotenv = require("dotenv");
+//dotenv.config();
 
 const PORT = process.env.PORT || 3001;
 

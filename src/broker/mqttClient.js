@@ -107,7 +107,7 @@ client.on("connect", async () => {
   }
 });
 
-// Publicar solicitud de compra (igual que ya lo tenías)
+// Publicar solicitud de compra 
 function sendPurchaseRequest(propertyUrl, requestId) {
   const purchaseRequest = {
     request_id: requestId || randomUUID(),
@@ -132,13 +132,13 @@ function sendPurchaseRequest(propertyUrl, requestId) {
     });
 }
 
-// ----- HANDLERS SOLO EN MODO BROKER -----
 if (isBroker) {
   client.on("message", async (topic, message) => {
     try {
       const data = JSON.parse(message.toString());
 
       if (topic === process.env.TOPIC) {
+        // Mensaje de properties/info - nueva propiedad
         await withFibRetry(
           () => axios.post(`${process.env.API_URL}/properties`, data),
           { maxRetries: 6, baseDelayMs: 1000 }
@@ -153,6 +153,7 @@ if (isBroker) {
         });
 
       } else if (topic === process.env.TOPIC_REQUEST) {
+        // Canal compartido - procesar TODAS las solicitudes
         await logEventToApi({
           topic,
           event_type: "REQUEST",
@@ -229,3 +230,4 @@ if (isBroker) {
 client.on("error", (error) => console.error("MQTT error:", error.message));
 
 module.exports = { sendPurchaseRequest };
+

@@ -6,6 +6,9 @@ const { withFibRetry } = require("../api/utils/retry");
 
 dotenv.config();
 
+const ROLE = process.env.ROLE || "api";
+const isBroker = ROLE === "broker";
+
 // Conexión MQTT
 const client = mqtt.connect({
   host: process.env.HOST,
@@ -40,8 +43,13 @@ async function logEventToApi(payload) {
   }
 }
 
-// Conexión y suscripciones 
+// ----- CONEXIÓN: diferenciar por rol -----
 client.on("connect", async () => {
+  if (!isBroker) {
+    console.log("MQTT publisher listo (modo API)");
+    return; // en modo API no nos suscribimos
+  }
+
   console.log("Broker conectado");
 
   // properties/info
@@ -99,11 +107,11 @@ client.on("connect", async () => {
   }
 });
 
-// Publicar solicitud de compra
-function sendPurchaseRequest(propertyUrl) {
+// Publicar solicitud de compra (igual que ya lo tenías)
+function sendPurchaseRequest(propertyUrl, requestId) {
   const purchaseRequest = {
-    request_id: randomUUID(),
-    group_id: Number(process.env.GROUP_ID), // validador espera número
+    request_id: requestId || randomUUID(),
+    group_id: Number(process.env.GROUP_ID),
     timestamp: new Date().toISOString(),
     url: propertyUrl,
     origin: 0,
@@ -124,80 +132,99 @@ function sendPurchaseRequest(propertyUrl) {
     });
 }
 
-// Manejo de mensajes
-client.on("message", async (topic, message) => {
-  try {
-    const data = JSON.parse(message.toString());
+// ----- HANDLERS SOLO EN MODO BROKER -----
+if (isBroker) {
+  client.on("message", async (topic, message) => {
+    try {
+      const data = JSON.parse(message.toString());
 
-    if (topic === process.env.TOPIC) {
-      // Mensaje de properties/info - nueva propiedadg
-      await withFibRetry(
-        () => axios.post(`${process.env.API_URL}/properties`, data),
-        { maxRetries: 6, baseDelayMs: 1000 }
-      );
-      console.log("Propiedad guardada");
-      await logEventToApi({
-        topic,
-        event_type: "INFO",
-        timestamp: data.timestamp,
-        url: data.url,
-        raw: data,
-      });
-
-    } else if (topic === process.env.TOPIC_REQUEST) {
-      // logeamos y esperamos la validación
-      await logEventToApi({
-        topic,
-        event_type: "REQUEST",
-        timestamp: data.timestamp,
-        url: data.url,
-        request_id: data.request_id,
-        group_id: data.group_id,
-        origin: data.origin,
-        operation: data.operation,
-        raw: data,
-      });
-      // validación
-    } else if (topic === process.env.TOPIC_VALIDATION) {
-      const status = String(data.status || "").toUpperCase();
-
-      await logEventToApi({
-        topic,
-        event_type: "VALIDATION",
-        timestamp: data.timestamp,
-        url: data.url || null,
-        request_id: data.request_id,
-        status,
-        reason: data.reason || null,
-        raw: data,
-      });
-
-
-      try {
+      if (topic === process.env.TOPIC) {
         await withFibRetry(
-          () => 
-            axios.post(`${process.env.API_URL}/purchases/settle-from-validation`, {
-              request_id: data.request_id,
-              status,
-            }),
-          {
-            maxRetries: 5,
-            baseDelayMs: 1000,
-            shouldRetry: (err) => {
-              const code = err?.response?.status;
-              return !code || code >= 500; 
-            },
-          }
+          () => axios.post(`${process.env.API_URL}/properties`, data),
+          { maxRetries: 6, baseDelayMs: 1000 }
         );
-        console.log(`VALIDATION aplicada (${status})`);
-      } catch (err) {
-        console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
+        console.log("Propiedad guardada");
+        await logEventToApi({
+          topic,
+          event_type: "INFO",
+          timestamp: data.timestamp,
+          url: data.url,
+          raw: data,
+        });
+
+      } else if (topic === process.env.TOPIC_REQUEST) {
+        await logEventToApi({
+          topic,
+          event_type: "REQUEST",
+          timestamp: data.timestamp,
+          url: data.url,
+          request_id: data.request_id,
+          group_id: data.group_id,
+          origin: data.origin,
+          operation: data.operation,
+          raw: data,
+        });
+
+        // reserva idempotente local mientras valida
+        try {
+          await withFibRetry(
+            () =>
+              axios.post(`${process.env.API_URL}/purchases/reserve-from-request`, {
+                request_id: data.request_id,
+                url: data.url,
+              }),
+            { maxRetries: 5, baseDelayMs: 1000 }
+          );
+        } catch (e) {
+          console.error(
+            "No se pudo reservar desde REQUEST:",
+            e.response?.data || e.message
+          );
+        }
+
+      } else if (topic === process.env.TOPIC_VALIDATION) {
+        const status = String(data.status || "").toUpperCase();
+
+        await logEventToApi({
+          topic,
+          event_type: "VALIDATION",
+          timestamp: data.timestamp,
+          url: data.url || null,
+          request_id: data.request_id,
+          status,
+          reason: data.reason || null,
+          raw: data,
+        });
+
+        try {
+          await withFibRetry(
+            () =>
+              axios.post(`${process.env.API_URL}/purchases/settle-from-validation`, {
+                request_id: data.request_id,
+                status,
+              }),
+            {
+              maxRetries: 5,
+              baseDelayMs: 1000,
+              shouldRetry: (err) => {
+                const code = err?.response?.status;
+                return !code || code >= 500;
+              },
+            }
+          );
+          console.log(`VALIDATION aplicada (${status})`);
+        } catch (err) {
+          console.error(
+            "Error aplicando VALIDATION:",
+            err.response?.data || err.message
+          );
+        }
       }
+    } catch (error) {
+      console.error("Error procesando mensaje:", error.message);
     }
-  } catch (error) {
-    console.error("Error procesando mensaje:", error.message);
-  }
-});
+  });
+}
 
 client.on("error", (error) => console.error("MQTT error:", error.message));
 

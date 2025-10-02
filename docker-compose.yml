@@ -13,6 +13,7 @@ services:
     env_file:
       - .env
     environment:
+      ROLE: "api"
       NODE_ENV: development
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
@@ -37,6 +38,7 @@ services:
     env_file:
       - .env
     environment:
+      ROLE: "api"
       NODE_ENV: development
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
@@ -60,6 +62,7 @@ services:
     env_file:
       - .env
     environment:
+      ROLE: "api"
       NODE_ENV: development
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
@@ -80,6 +83,8 @@ services:
         condition: service_started
     env_file:
       - .env
+    environment:
+      ROLE: "broker"
     restart: unless-stopped   #RNF10
     
   db:

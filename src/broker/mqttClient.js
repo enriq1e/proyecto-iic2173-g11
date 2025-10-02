@@ -1,152 +1,204 @@
 const mqtt = require("mqtt");
 const axios = require("axios");
 const dotenv = require("dotenv");
-const { randomUUID } = require('crypto');
-// const { v4: uuidv4 } = require('uuid') tiraba error
+const { randomUUID } = require("crypto");
+const { withFibRetry } = require("../api/utils/retry");
 
 dotenv.config();
 
-// Crear cliente
+// Conexión MQTT
 const client = mqtt.connect({
-  clientId: "mqttjs_g11_" + Math.random().toString(16).substring(2, 8),
-  username: process.env.USER,
-  password: process.env.PASSWORD,
   host: process.env.HOST,
   port: Number(process.env.BROKER_PORT),
-  protocol: "mqtt"
+  protocol: "mqtt",
+  protocolVersion: 4,
+  clean: true,
+  keepalive: 30,
+  reconnectPeriod: 2000,
+  resubscribe: true,
+  username: process.env.USER,
+  password: process.env.PASSWORD,
+  clientId: "mqttjs_g11_" + Math.random().toString(16).slice(2, 8),
 });
 
-// Logear eventos en la API
+// Publicar con promesas
+function publishAsync(topic, payload) {
+  return new Promise((resolve, reject) => {
+    client.publish(topic, payload, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// Loguear evento a API
 async function logEventToApi(payload) {
   try {
-    await axios.post(`${process.env.API_URL}/event-logs`, payload);
+    await withFibRetry(
+      () => axios.post(`${process.env.API_URL}/event-logs`, payload),
+      { maxRetries: 6, baseDelayMs: 1000 }
+    );
   } catch (err) {
     console.error("Error POST /event-logs:", err.response?.data || err.message);
   }
 }
 
-// Conectarse al broker
-client.on("connect", () => {
-  console.log("Conectado al broker");
+// Conexión y suscripciones 
+client.on("connect", async () => {
+  console.log("Broker conectado");
 
-  // Suscribirse a properties/info  
-  client.subscribe(process.env.TOPIC, (error) => {
-    if (error) {
-      console.error("Error al suscribirse:", error);
-    } else {
-      console.log(`Suscrito a: ${process.env.TOPIC}`);
-    }
-  });
+  // properties/info
+  try {
+    await withFibRetry(
+      () =>
+        new Promise((res, rej) => {
+          client.subscribe(process.env.TOPIC, { qos: 1 }, (err) =>
+            err ? rej(err) : res()
+          );
+        }),
+      { maxRetries: 5, baseDelayMs: 1000 }
+    );
+    console.log(`Suscrito: ${process.env.TOPIC}`);
+  } catch (err) {
+    console.error(`Suscripción fallida (${process.env.TOPIC}):`, err.message);
+  }
 
-  // Suscribirse a properties/requests
-  client.subscribe(process.env.TOPIC_REQUEST, (error) => {
-    if (error) {
-      console.error("Error al suscribirse a", process.env.TOPIC_REQUEST, ":", error);
-    } else {
-      console.log(`Suscrito a: ${process.env.TOPIC_REQUEST}`);
-    }
-  });
+  // properties/requests
+  try {
+    await withFibRetry(
+      () =>
+        new Promise((res, rej) => {
+          client.subscribe(process.env.TOPIC_REQUEST, { qos: 1 }, (err) =>
+            err ? rej(err) : res()
+          );
+        }),
+      { maxRetries: 5, baseDelayMs: 1000 }
+    );
+    console.log(`Suscrito: ${process.env.TOPIC_REQUEST}`);
+  } catch (err) {
+    console.error(
+      `Suscripción fallida (${process.env.TOPIC_REQUEST}):`,
+      err.message
+    );
+  }
 
-  // Suscribirse a properties/validation
-  client.subscribe(process.env.TOPIC_VALIDATION, (error) => {
-    if (error) console.error("Error al suscribirse a", process.env.TOPIC_VALIDATION, ":", error);
-    else console.log(`Suscrito a: ${process.env.TOPIC_VALIDATION}`);
-  });
+  // properties/validation
+  try {
+    await withFibRetry(
+      () =>
+        new Promise((res, rej) => {
+          client.subscribe(process.env.TOPIC_VALIDATION, { qos: 1 }, (err) =>
+            err ? rej(err) : res()
+          );
+        }),
+      { maxRetries: 5, baseDelayMs: 1000 }
+    );
+    console.log(`Suscrito: ${process.env.TOPIC_VALIDATION}`);
+  } catch (err) {
+    console.error(
+      `Suscripción fallida (${process.env.TOPIC_VALIDATION}):`,
+      err.message
+    );
+  }
 });
 
-// Función para enviar solicitud de compra
+// Publicar solicitud de compra
 function sendPurchaseRequest(propertyUrl) {
   const purchaseRequest = {
     request_id: randomUUID(),
-    group_id: process.env.GROUP_ID,
+    group_id: Number(process.env.GROUP_ID), // validador espera número
     timestamp: new Date().toISOString(),
     url: propertyUrl,
     origin: 0,
-    operation: "BUY"
+    operation: "BUY",
   };
 
-  console.log("Enviando solicitud de compra:", purchaseRequest);
-  
-  client.publish(process.env.TOPIC_REQUEST, JSON.stringify(purchaseRequest), (error) => {
-    if (error) {
-      console.error('Error enviando solicitud de compra:', error);
-    } else {
-      console.log('Solicitud de compra enviada:', purchaseRequest.request_id);
-    }
-  });
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_REQUEST, JSON.stringify(purchaseRequest)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  )
+    .then(() => {
+      console.log("Solicitud enviada:", purchaseRequest.request_id);
+      return purchaseRequest.request_id;
+    })
+    .catch((err) => {
+      console.error("Error publicando solicitud:", err.message);
+      throw err;
+    });
 }
 
 // Manejo de mensajes
 client.on("message", async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
-    console.log(`Mensaje recibido en ${topic}:`, data);
-    
-    if (topic === process.env.TOPIC) {
-      // Mensaje de properties/info - nueva propiedad
-      await axios.post(`${process.env.API_URL}/properties`, data);
-      console.log("Propiedad enviada a la API para guardar");
 
-      // Logear evento
+    if (topic === process.env.TOPIC) {
+      // Mensaje de properties/info - nueva propiedadg
+      await withFibRetry(
+        () => axios.post(`${process.env.API_URL}/properties`, data),
+        { maxRetries: 6, baseDelayMs: 1000 }
+      );
+      console.log("Propiedad guardada");
       await logEventToApi({
         topic,
-        event_type: 'INFO',
+        event_type: "INFO",
         timestamp: data.timestamp,
         url: data.url,
-        raw: data
+        raw: data,
       });
-      
+
     } else if (topic === process.env.TOPIC_REQUEST) {
       // logeamos y esperamos la validación
       await logEventToApi({
         topic,
-        event_type: 'REQUEST',
+        event_type: "REQUEST",
         timestamp: data.timestamp,
         url: data.url,
         request_id: data.request_id,
         group_id: data.group_id,
         origin: data.origin,
         operation: data.operation,
-        raw: data
+        raw: data,
       });
+      // validación
     } else if (topic === process.env.TOPIC_VALIDATION) {
-      // Mensaje de properties/validation - respuesta a solicitud de compra
-      const status = String(data.status || '').toUpperCase();
-      
-      // Logeamos validación
+      const status = String(data.status || "").toUpperCase();
+
       await logEventToApi({
         topic,
-        event_type: 'VALIDATION',
+        event_type: "VALIDATION",
         timestamp: data.timestamp,
         url: data.url || null,
         request_id: data.request_id,
         status,
         reason: data.reason || null,
-        raw: data
+        raw: data,
       });
 
-      if (status === 'ACCEPTED' || status === 'OK') {
-        try {
-          // Reducir offers
-          await axios.post(`${process.env.API_URL}/purchases/reduce-offers`, {
-            property_url: data.url,
-            operation: "REDUCE"
-          });
-          console.log(`Offers reducidas tras validación (OK/ACCEPTED) por solicitud del grupo: ${data.group_id}`);
-        } catch (err) {
-          console.error(`Error reduciendo offers tras validación para grupo ${data.group_id}:`, err.response?.data || err.message);
-       }
-    }
 
+      try {
+        await withFibRetry(
+          () => 
+            axios.post(`${process.env.API_URL}/purchases/settle-from-validation`, {
+              request_id: data.request_id,
+              status,
+            }),
+          {
+            maxRetries: 5,
+            baseDelayMs: 1000,
+            shouldRetry: (err) => {
+              const code = err?.response?.status;
+              return !code || code >= 500; 
+            },
+          }
+        );
+        console.log(`VALIDATION aplicada (${status})`);
+      } catch (err) {
+        console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
+      }
     }
   } catch (error) {
     console.error("Error procesando mensaje:", error.message);
   }
 });
 
-// Errores de conexion
-client.on("error", (error) => {
-  console.error("Error:", error);
-});
+client.on("error", (error) => console.error("MQTT error:", error.message));
 
 module.exports = { sendPurchaseRequest };

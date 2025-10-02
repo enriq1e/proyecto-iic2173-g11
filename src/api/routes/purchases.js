@@ -35,21 +35,33 @@ router.post("create.purchase", "/", async (ctx) => {
     }
     
     console.log(`Enviando solicitud de compra para: ${property.name} (${property.offers} offers disponibles)`);
-    sendPurchaseRequest(property_url);
-    
-    ctx.body = { 
+     // 2. Intento 1 RNF10
+    try {
+      await sendPurchaseRequest(property_url);
+    } catch (e1) {
+      console.warn("Compra: intento 1 falló, reintentando 1 vez…", e1.message || e1);
+      // 3. Reintento 2 (única vez) RNF10
+      try {
+        await sendPurchaseRequest(property_url);
+      } catch (e2) {
+        ctx.status = 502;
+        ctx.body = { error: "Solicitud de compra fallida tras 1 reintento", details: e2.message || String(e2) };
+        return;
+      }
+    }
+
+    ctx.status = 201;
+    ctx.body = {
       message: "Solicitud de compra enviada",
-      property_url: property_url,
+      property_url,
       property_name: property.name,
       available_offers: property.offers,
-      status: "pending"
+      status: "pending", // quedamos a la espera de VALIDATION
     };
-    ctx.status = 201;
-    
   } catch (error) {
     console.error("Error en solicitud de compra:", error);
-    ctx.body = { error: "Error interno del servidor" };
     ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
   }
 });
 

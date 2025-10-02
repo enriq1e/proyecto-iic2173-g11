@@ -1,5 +1,6 @@
 const Router = require("@koa/router");
 const { Op, fn, col, where, Sequelize  } = require("sequelize");
+const { getUfValue } = require("../utils/uf");
 
 const router = new Router();
 
@@ -94,7 +95,16 @@ router.get("show.one.propertie", "/:id", async (ctx) => {
             ctx.status = 404;
             return;
         }
-        ctx.body = propertie;
+
+        // RNF11: calcular 10% en CLP
+        let tenPercentClp = null;
+        if (propertie.currency === 'UF') {
+          const uf = await getUfValue();
+          tenPercentClp = Math.round(propertie.price * uf * 0.1);
+        } else if (propertie.currency === '$') {
+          tenPercentClp = Math.round(propertie.price * 0.1);
+        }
+        ctx.body = { ...propertie.toJSON(), ten_percent_clp: tenPercentClp };
         ctx.status = 200;
 
     } catch(error) {

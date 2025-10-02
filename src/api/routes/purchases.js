@@ -2,7 +2,7 @@ const Router = require("@koa/router");
 const { sendPurchaseRequest } = require("../../broker/mqttClient");
 
 // agregados minimos para RF03
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const authenticate = require('../middlewares/authenticate');
 
 // Para idempotencia (validar UUIDs)
@@ -65,7 +65,7 @@ router.post("create.purchase", "/", authenticate, async (ctx) => {
     await wallet.save();
 
     // Crear intención PENDING (sin tocar offers aquí)
-    const request_id = uuidv4();
+    const request_id = randomUUID();
     await ctx.orm.PurchaseIntent.create({
       request_id,
       group_id: process.env.GROUP_ID || '11',

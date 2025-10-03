@@ -1,8 +1,35 @@
 services:
+  # Servicio de autenticación
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth_service
+    command: sh -c "npx sequelize-cli db:migrate && node src/app.js"
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: "${DB_HOST}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASS}"
+      DB_NAME: "${DB_NAME}"
+      PORT: 4000
+      JWT_SECRET: "${JWT_SECRET}"
+    volumes:
+      - ./auth-service:/usr/src/app
+    restart: unless-stopped
+
+  # Servicio API principal
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.api
     container_name: api_service
     command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
     ports:
@@ -10,6 +37,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      auth-service:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -24,10 +53,11 @@ services:
       - /usr/src/app/node_modules
     restart: unless-stopped   #RNF10
 
+  # Servicio API réplica 1 (para balanceo de carga)
   api-1:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.api
     container_name: api_service_1
     command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
     ports:
@@ -35,6 +65,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      auth-service:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -48,10 +80,11 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
 
+  # Servicio API réplica 2 (para balanceo de carga)
   api-2:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.api
     container_name: api_service_2
     command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
     ports:
@@ -59,6 +92,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      auth-service:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -72,8 +107,11 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
 
+  # Servicio Broker MQTT
   broker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
     container_name: broker_service
     command: ["node", "src/broker/mqttClient.js"]
     depends_on:
@@ -85,6 +123,9 @@ services:
       - .env
     environment:
       ROLE: "broker"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
     restart: unless-stopped   #RNF10
     
   db:

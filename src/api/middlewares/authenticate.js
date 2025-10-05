@@ -18,7 +18,7 @@ const authenticate = async (ctx, next) => {
     await next();
   } catch (err) {
     ctx.status = 403;
-    ctx.body = { error: "Token inválido", details: err.message };
+    ctx.body = { error: "Token invalido", details: err.message };
   }
 };
 

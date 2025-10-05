@@ -14,10 +14,6 @@ app.use(KoaLogger());
 app.use(koaBody());
 
 // Rutas
-router.get("/", (ctx) => {
-  ctx.body = "OK";
-});
-
 app.use(router.routes());
 app.use(router.allowedMethods());
 

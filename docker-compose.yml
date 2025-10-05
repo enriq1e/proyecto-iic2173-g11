@@ -2,10 +2,10 @@ services:
   # Servicio de autenticación
   auth-service:
     build:
-      context: ./auth-service
+      context: .
       dockerfile: Dockerfile
     container_name: auth_service
-    command: sh -c "npx sequelize-cli db:migrate && node src/app.js"
+    command: sh -c "npx sequelize-cli db:migrate && node src/auth/app.js"
     ports:
       - "4000:4000"
     depends_on:
@@ -21,19 +21,17 @@ services:
       DB_NAME: "${DB_NAME}"
       PORT: 4000
       JWT_SECRET: "${JWT_SECRET}"
-    volumes:
-      - ./auth-service:/usr/src/app
     restart: unless-stopped
 
   # Servicio API principal
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
     container_name: api_service
     command: sh -c "npx sequelize-cli db:migrate && node -r newrelic src/api/index.js"
     ports:
-      - "${PORT}:${PORT}"
+      - "3001:3001"
     depends_on:
       db:
         condition: service_healthy
@@ -48,20 +46,17 @@ services:
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
-    volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
     restart: unless-stopped   #RNF10
 
   # Servicio API réplica 1 (para balanceo de carga)
   api-1:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
     container_name: api_service_1
-    command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
+    command: sh -c "node src/api/index.js"
     ports:
-      - "3000:${PORT}"
+      - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
@@ -76,19 +71,16 @@ services:
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
-    volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
 
   # Servicio API réplica 2 (para balanceo de carga)
   api-2:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
     container_name: api_service_2
-    command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
+    command: sh -c "node src/api/index.js"
     ports:
-      - "3002:${PORT}"
+      - "3002:3002"
     depends_on:
       db:
         condition: service_healthy
@@ -103,15 +95,12 @@ services:
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
-    volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
 
   # Servicio Broker MQTT
   broker:
     build:
       context: .
-      dockerfile: Dockerfile.broker
+      dockerfile: Dockerfile
     container_name: broker_service
     command: ["node", "src/broker/mqttClient.js"]
     depends_on:
@@ -123,9 +112,6 @@ services:
       - .env
     environment:
       ROLE: "broker"
-    volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
     restart: unless-stopped   #RNF10
     
   db:

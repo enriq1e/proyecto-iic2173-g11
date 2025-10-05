@@ -26,6 +26,10 @@ module.exports = {
         allowNull: false,
         type: Sequelize.STRING
       },
+      bathrooms: {
+        allowNull: false,
+        type: Sequelize.STRING
+      },
       m2: {
         allowNull: false,
         type: Sequelize.STRING

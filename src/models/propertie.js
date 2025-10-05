@@ -1,5 +1,4 @@
-// src/models/propertie.js
-
+'use strict';
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
@@ -17,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
     price: DataTypes.FLOAT,
     currency: DataTypes.STRING,
     bedrooms: DataTypes.STRING,
-    bathrooms: DataTypes.STRING, //faltaban los baños
+    bathrooms: DataTypes.STRING,
     m2: DataTypes.STRING,
     location: DataTypes.STRING,
     img: DataTypes.STRING,

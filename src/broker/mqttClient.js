@@ -230,4 +230,3 @@ if (isBroker) {
 client.on("error", (error) => console.error("MQTT error:", error.message));
 
 module.exports = { sendPurchaseRequest };
-

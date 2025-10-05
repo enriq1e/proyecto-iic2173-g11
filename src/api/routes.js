@@ -6,8 +6,9 @@ const wallet = require("./routes/wallet.js");
 
 const router = new Router();
 
-router.get('/', (ctx) => { ctx.body = { ok: true }; });
-
+router.get("/", (ctx) => {
+  ctx.body = "530";
+});
 
 router.use('/properties', properties.routes());
 router.use('/wallet', wallet.routes());

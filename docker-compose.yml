@@ -56,7 +56,7 @@ services:
     container_name: api_service_1
     command: sh -c "node src/api/index.js"
     ports:
-      - "3000:3000"
+      - "3000:3001"
     depends_on:
       db:
         condition: service_healthy
@@ -80,7 +80,7 @@ services:
     container_name: api_service_2
     command: sh -c "node src/api/index.js"
     ports:
-      - "3002:3002"
+      - "3002:3001"
     depends_on:
       db:
         condition: service_healthy

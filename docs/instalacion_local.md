@@ -41,10 +41,10 @@ UF_FALLBACK=40000
 
 /auth-service/.env
 ```
-DB_USER=
-DB_PASS=
-DB_NAME=
-DB_HOST=
+DB_USER=db_user
+DB_PASS=db_pass
+DB_NAME=db_name
+DB_HOST=<'localhost'>
 JWT_SECRET=
 PORT=4000
 
@@ -52,7 +52,8 @@ API_URL=http://localhost:4000
 ```
 
 frontend-iic2173-g11/.env
-```VITE_AUTH_URL=https://api.propiedadesarquisis.me/auth
+```
+VITE_AUTH_URL=https://api.propiedadesarquisis.me/auth
 VITE_API_BASE_URL=https://api.propiedadesarquisis.me/api
 ```
 

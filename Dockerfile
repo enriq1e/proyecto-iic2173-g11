@@ -1,6 +1,6 @@
 # Docker file sacado del proyecto de IIC2513 2025-1
 # Siempre partimos de una imagen base.
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Workdir indica el directorio de trabajo dentro del contenedor.
 WORKDIR /usr/src/app

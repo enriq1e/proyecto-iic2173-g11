@@ -1,13 +1,14 @@
 const Router = require("@koa/router");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcrypt");
+const { User } = require("../models");
 
 const router = new Router();
 
 router.post("/signup", async (ctx) => {
   const { username, email, password } = ctx.request.body;
   try {
-    const existingUser = await ctx.orm.User.findOne({ where: { email } });
+    const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       ctx.status = 400;
       ctx.body = { error: "El correo ya está registrado" };
@@ -16,7 +17,7 @@ router.post("/signup", async (ctx) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await ctx.orm.User.create({
+    const user = await User.create({
       username,
       email,
       password: hashedPassword,
@@ -39,7 +40,7 @@ router.post("/signup", async (ctx) => {
 router.post("/login", async (ctx) => {
   const { email, password } = ctx.request.body;
 
-  const user = await ctx.orm.User.findOne({ where: { email } });
+  const user = await User.findOne({ where: { email } });
   if (!user) {
     ctx.status = 401;
     ctx.body = { error: "Usuario no encontrado" };
@@ -49,7 +50,7 @@ router.post("/login", async (ctx) => {
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
     ctx.status = 401;
-    ctx.body = { error: "Contrasena incorrecta" };
+    ctx.body = { error: "Contraseña incorrecta" };
     return;
   }
 

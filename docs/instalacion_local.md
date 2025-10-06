@@ -41,10 +41,10 @@ UF_FALLBACK=40000
 
 /auth-service/.env
 ```
-DB_USER=db_user
-DB_PASS=db_pass
-DB_NAME=db_name
-DB_HOST=<'localhost'>
+AUTH_DB_USER=db_user
+AUTH_DB_PASS=db_pass
+AUTH_DB_NAME=db_name
+AUTH_DB_HOST=<'localhost'>
 JWT_SECRET=
 PORT=4000
 

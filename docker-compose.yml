@@ -2,23 +2,23 @@ services:
   # Servicio de autenticación
   auth-service:
     build:
-      context: .
+      context: ./auth-service
       dockerfile: Dockerfile
     container_name: auth_service
-    command: sh -c "npx sequelize-cli db:migrate && node src/auth/app.js"
+    command: sh -c "npx sequelize-cli db:migrate && node src/app.js"
     ports:
       - "4000:4000"
     depends_on:
-      db:
+      auth-db:
         condition: service_healthy
     env_file:
-      - .env
+      - auth-service/.env
     environment:
       NODE_ENV: development
-      DB_HOST: "${DB_HOST}"
-      DB_USER: "${DB_USER}"
-      DB_PASSWORD: "${DB_PASS}"
-      DB_NAME: "${DB_NAME}"
+      DB_HOST: "${AUTH_DB_HOST}"
+      DB_USER: "${AUTH_DB_USER}"
+      DB_PASSWORD: "${AUTH_DB_PASS}"
+      DB_NAME: "${AUTH_DB_NAME}"
       PORT: 4000
       JWT_SECRET: "${JWT_SECRET}"
     restart: unless-stopped
@@ -46,7 +46,7 @@ services:
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
-    restart: unless-stopped   #RNF10
+    restart: unless-stopped
 
   # Servicio API réplica 1 (para balanceo de carga)
   api-1:
@@ -97,23 +97,31 @@ services:
       DB_NAME: "${DB_NAME}"
 
   # Servicio Broker MQTT
-  broker:
+  broker_service:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: broker_service
     command: ["node", "src/broker/mqttClient.js"]
     depends_on:
-      db:
-        condition: service_healthy
       api:
         condition: service_started
-    env_file:
-      - .env
+      db:
+        condition: service_healthy
     environment:
-      ROLE: "broker"
-    restart: unless-stopped   #RNF10
-    
+      ROLE: broker
+      HOST: "${HOST}"
+      BROKER_PORT: "${BROKER_PORT}"
+      USER: "${USERNAME}"
+      PASSWORD: "${PASSWORD}"
+      TOPIC: "${TOPIC}"
+      TOPIC_REQUEST:  "${TOPIC_REQUEST}"
+      TOPIC_VALIDATION: "${TOPIC_VALIDATION}"
+      API_URL: "${API_URL}"
+      GROUP_ID: "${GROUP_ID}"
+    restart: unless-stopped
+
+  # Base de datos principal (API)
   db:
     image: postgres:13-alpine
     container_name: db_service
@@ -130,7 +138,27 @@ services:
       POSTGRES_DB: "${DB_NAME}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped   #RNF10
+    restart: unless-stopped
+
+  # Base de datos para AUTH
+  auth-db:
+    image: postgres:13-alpine
+    container_name: auth_db_service
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER} -d ${AUTH_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      POSTGRES_USER: "${AUTH_DB_USER}"
+      POSTGRES_PASSWORD: "${AUTH_DB_PASS}"
+      POSTGRES_DB: "${AUTH_DB_NAME}"
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  auth_postgres_data:

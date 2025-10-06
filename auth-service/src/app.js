@@ -2,22 +2,18 @@ const Koa = require("koa");
 const KoaLogger = require("koa-logger");
 const { koaBody } = require("koa-body");
 const cors = require("@koa/cors"); 
-const router = require("./routes.js");
-const orm = require("../models");
+const authRoutes = require("./routes/auth");
 
 const app = new Koa();
-app.context.orm = orm;
 
-// Middlewares
 app.use(cors({ origin: "*" }));  
 app.use(KoaLogger());
 app.use(koaBody());
 
-// Rutas
-app.use(router.routes());
-app.use(router.allowedMethods());
+app.use(authRoutes.routes());
+app.use(authRoutes.allowedMethods());
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Auth corriendo en ${PORT}`);
+  console.log(`Auth service running on port ${PORT}`);
 });

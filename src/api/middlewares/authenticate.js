@@ -1,7 +1,10 @@
 const jwt = require("jsonwebtoken");
 
 const authenticate = async (ctx, next) => {
-  const authHeader = ctx.headers["Authorization"];
+  console.log('\n');
+  console.log(ctx.headers.authorization)
+  console.log('\n');
+  const authHeader = ctx.headers.authorization;
   if (!authHeader) {
     ctx.status = 401;
     ctx.body = { error: "Token requerido" };

@@ -17,26 +17,31 @@ Cada servicio tiene su propio `.env`, podrás copiarlo desde `.env-example` y co
 proyecto-iic2173-g11\
 /.env (api de properties)
 ```
-HOST=<host>
-BROKER_PORT=<8686>
-USERNAME=<username>
-PASSWORD=<pass>
-TOPIC=<topic/topic>
+HOST=
+BROKER_PORT=
+USERNAME=
+PASSWORD=
+TOPIC=
+TOPIC_REQUEST=
+TOPIC_VALIDATION=
+GROUP_ID=
 
 DB_HOST=<'localhost'>
 DB_NAME=db_name
 DB_USER=db_user
 DB_PASS=db_pass
 
+AUTH_DB_HOST=auth-db 
+AUTH_DB_NAME=
+AUTH_DB_USER=
+AUTH_DB_PASS=
+
 PORT=<8686>
 API_URL= <http://api:3001>
 
-TOPIC=properties/info
-TOPIC_REQUEST=properties/requests
-GROUP_ID=g11
-
 UF_API_URL=https://mindicador.cl/api/uf
 UF_FALLBACK=40000
+NEW_RELIC_APP_NAME=
 ```
 
 /auth-service/.env

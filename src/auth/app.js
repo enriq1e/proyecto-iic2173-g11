@@ -17,7 +17,7 @@ app.use(koaBody());
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-const PORT = process.env.PORT || 4000;
+const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`Auth corriendo en ${PORT}`);
 });

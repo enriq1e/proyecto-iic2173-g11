@@ -3,8 +3,10 @@ const { client: mqttClient } = require("../../broker/mqttClient");
 
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
+const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqttClient');
 const authenticate = require('../middlewares/authenticate');
 const { tx } = require('../utils/transactions.js');
+const { send } = require("process");
 // Para idempotencia (validar UUIDs)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
@@ -40,8 +42,11 @@ router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
       return;
     }
     const priceNum = Number(property.price);
+    const request_id = randomUUID();
+    const trx = await tx.create(String(property.id), "g11-business", priceNum, process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
-    const trx = await tx.create(String(property.id), "g11-business", priceNum, process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}`);
+
+    sendPurchaseRequest(property_url, request_id, trx.token);
 
     ctx.body = {
       message: "Solicitud de compra enviada",
@@ -128,6 +133,8 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
       });
     }
 
+    sendValidationResult()
+
     ctx.status = 201;
     ctx.body = {
       message: existingIntent ? 'Intención existente reutilizada' : 'Intención creada',
@@ -146,14 +153,13 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
 
 router.post('/commit', authenticate, async (ctx) => {
   try {
-    const { token_ws, property_id } = ctx.request.body;
+    const { token_ws, property_id, request_id } = ctx.request.body;
     if (!token_ws || !property_id) {
       ctx.status = 400;
       ctx.body = { error: 'token_ws y property_id son requeridos' };
       return;
     }
 
-    // Confirmar la transacción con Transbank
     let confirmedTx;
     try {
       confirmedTx = await tx.commit(String(token_ws));
@@ -168,6 +174,7 @@ router.post('/commit', authenticate, async (ctx) => {
     if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
       ctx.status = 400;
       ctx.body = { message: 'Transacción no aprobada', details: confirmedTx };
+      sendValidationResult('REJECTED', request_id);
       return;
     }
 
@@ -179,38 +186,15 @@ router.post('/commit', authenticate, async (ctx) => {
       return;
     }
 
-    const request_id = randomUUID();
-
-    const purchaseRequest = {
-      request_id,
-      group_id: process.env.GROUP_ID || '11',
-      timestamp: new Date().toISOString(),
-      url: property.url,
-      origin: 0,
-      operation: 'BUY',
-    };
-
-    // Publicar en el topic compartido
-    try {
-      await new Promise((resolve, reject) => {
-        mqttClient.publish(process.env.TOPIC_REQUEST, JSON.stringify(purchaseRequest), (err) => {
-          if (err) return reject(err);
-          console.log('Solicitud publicada desde /commit:', request_id);
-          resolve();
-        });
-      });
-    } catch (err) {
-      console.error('Error publicando solicitud desde /commit:', err?.message || err);
-      // No abortamos la respuesta; informamos que hubo un problema publicando
-      ctx.body = {
-        message: "Compra confirmada, pero fallo al publicar la solicitud",
-        request_id,
-        property_url: property.url,
-        details: err?.message || String(err),
-      };
-      ctx.status = 201;
+    if (property.offers <= 0) {
+      ctx.status = 400;
+      ctx.body = { error: 'No hay ofertas disponibles' };
+      sendValidationResult('OK', request_id);
       return;
     }
+
+    sendValidationResult('ACCEPTED', request_id);
+
 
     ctx.status = 201;
     ctx.body = {

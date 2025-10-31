@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: api_service
-    command: sh -c "npx sequelize-cli db:migrate && node -r newrelic src/api/index.js"
+    command: sh -c "npx sequelize-cli db:migrate && node src/api/index.js"
     ports:
       - "3001:3001"
     depends_on:
@@ -42,6 +42,7 @@ services:
     environment:
       ROLE: "api"
       NODE_ENV: development
+      NEW_RELIC_ENABLED: "false"
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"

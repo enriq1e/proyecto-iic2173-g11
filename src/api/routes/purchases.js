@@ -1,5 +1,6 @@
 const Router = require("@koa/router");
 const { sendPurchaseRequest } = require("../../broker/mqttClient");
+const { enqueueRecommendationJob } = require('../services/jobsClient');
 
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
@@ -327,6 +328,48 @@ router.post("settle.from.validation", "/settle-from-validation", async (ctx) => 
       status: s,
       raw: {},
     });
+
+    // RF01 E2: si la validación fue exitosa, encolamos recomendaciones (idempotente)
+    if (s === 'ACCEPTED' || s === 'OK') {
+      // evitar duplicados: revisa si ya encolamos para este request
+      const alreadyQueued = await ctx.orm.EventLog.findOne({
+        where: { request_id, event_type: 'RECO_JOB_ENQUEUED' },
+      });
+      if (!alreadyQueued) {
+        // obtener base de datos de la intención para user y propiedad
+        const intent = await ctx.orm.PurchaseIntent.findOne({ where: { request_id } });
+        if (intent) {
+          try {
+            const job = await enqueueRecommendationJob({
+              userId: intent.email,
+              propertyId: String(intent.propertieId),
+              source: 'purchase',
+            });
+            await ctx.orm.EventLog.create({
+              topic: 'jobs/recommendations',
+              event_type: 'RECO_JOB_ENQUEUED',
+              timestamp: new Date().toISOString(),
+              url: requestEvent.url,
+              request_id,
+              status: s,
+              raw: { jobId: job?.jobId },
+            });
+          } catch (e) {
+            console.error('Error encolando recomendaciones:', e?.message || e);
+            // No bloqueamos el asentamiento; solo registramos el fallo
+            await ctx.orm.EventLog.create({
+              topic: 'jobs/recommendations',
+              event_type: 'RECO_JOB_FAILED',
+              timestamp: new Date().toISOString(),
+              url: requestEvent.url,
+              request_id,
+              status: s,
+              raw: { error: e?.message || String(e) },
+            });
+          }
+        }
+      }
+    }
 
     ctx.status = 200;
     ctx.body = {

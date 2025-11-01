@@ -1,6 +1,6 @@
 const Router = require("@koa/router");
 const { client: mqttClient } = require("../../broker/mqttClient");
-
+const {getUfValue} = require("../utils/uf");
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
 const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqttClient');
@@ -41,9 +41,18 @@ router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
       ctx.status = 409; // Conflict
       return;
     }
-    const priceNum = Number(property.price);
+    let priceNum;
+    if (property.currency == "UF"){
+      const ufValue = await getUfValue();
+      priceNum = Number(property.price) * ufValue * 0.1;
+      console.log("Precio en CLP calculado desde UF:", priceNum);
+    }
+    else{
+      priceNum = Number(property.price) * 0.1;
+    }
+
     const request_id = randomUUID();
-    const trx = await tx.create(String(property.id), "g11-business", priceNum, process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
+    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
 
     sendPurchaseRequest(property_url, request_id, trx.token);
@@ -132,9 +141,6 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
         propertieId: property.id,
       });
     }
-
-    sendValidationResult()
-
     ctx.status = 201;
     ctx.body = {
       message: existingIntent ? 'Intención existente reutilizada' : 'Intención creada',

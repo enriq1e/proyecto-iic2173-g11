@@ -4,3 +4,4 @@ node_modules/
 *.txt
 *.pdf
 yarn.lock
+coverage/

@@ -14,7 +14,7 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
@@ -41,7 +41,7 @@ services:
       - .env
     environment:
       ROLE: "api"
-      NODE_ENV: development
+      NODE_ENV: production
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
@@ -66,7 +66,7 @@ services:
       - .env
     environment:
       ROLE: "api"
-      NODE_ENV: development
+      NODE_ENV: production
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
@@ -90,7 +90,7 @@ services:
       - .env
     environment:
       ROLE: "api"
-      NODE_ENV: development
+      NODE_ENV: production
       DB_HOST: "${DB_HOST}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"

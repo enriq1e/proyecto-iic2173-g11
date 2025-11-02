@@ -51,7 +51,13 @@ router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
       priceNum = Number(property.price) * 0.1;
     }
 
-    const request_id = randomUUID();
+    const email = ctx.state.user?.email || ctx.state.user?.mail;
+    const existingIntent = await ctx.orm.PurchaseIntent.findOne({
+      where: { url: property.url, email, status: "PENDING" },
+      order: [["createdAt", "DESC"]],
+    });
+
+    const request_id = existingIntent?.request_id || randomUUID();
     const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
 
@@ -159,7 +165,21 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
 
 router.post('/commit', authenticate, async (ctx) => {
   try {
-    const { token_ws, property_id, request_id } = ctx.request.body;
+    const { token_ws, property_id } = ctx.request.body;
+
+    // Buscar el purchaseintent asociado a esta propiedad
+    const intent = await ctx.orm.PurchaseIntent.findOne({
+      where: { propertieId: property_id },
+      order: [["createdAt", "DESC"]],
+    });
+
+    const request_id = intent?.request_id;
+    if (!request_id) {
+      ctx.status = 400;
+      ctx.body = { error: "No se encontró PurchaseIntent para esta propiedad" };
+      return;
+    }
+
     if (!token_ws || !property_id) {
       ctx.status = 400;
       ctx.body = { error: 'token_ws y property_id son requeridos' };
@@ -199,17 +219,40 @@ router.post('/commit', authenticate, async (ctx) => {
       return;
     }
 
-    sendValidationResult('ACCEPTED', request_id);
+    try {
+      await ctx.orm.EventLog.create({
+        topic: "properties/requests",
+        event_type: "REQUEST",
+        timestamp: new Date().toISOString(),
+        url: property.url,
+        request_id,
+        group_id: process.env.GROUP_ID || "unknown",
+        origin: 0,
+        operation: "BUY",
+        status: "PENDING",
+        raw: JSON.stringify({
+          property_id: property.id,
+          property_name: property.name,
+          property_url: property.url,
+          price: property.price,
+          currency: property.currency,
+        }),
+      });
+      console.log(`🔵 EventLog REQUEST creado para ${request_id}`);
+    } catch (err) {
+      console.error("Error creando EventLog REQUEST:", err.message);
+    }
 
+    sendValidationResult('ACCEPTED', request_id);
 
     ctx.status = 201;
     ctx.body = {
-      message: 'Compra confirmada y solicitud enviada',
+      message: 'Compra confirmada y validación enviada',
       request_id,
       property_url: property.url,
       property_name: property.name,
       available_offers: property.offers,
-      status: 'pending'
+      status: 'aceptada'
     };
     return;
   } catch (error) {
@@ -444,5 +487,38 @@ router.post("settle.from.validation", "/settle-from-validation", async (ctx) => 
     ctx.body = { error: "Error interno" };
   }
 });
+
+// actualizar estado de purchaseintents
+router.patch("/purchase-intents/:request_id/status", async (ctx) => {
+  try {
+    const { request_id } = ctx.params;
+    const { status } = ctx.request.body;
+
+    if (!request_id || !status) {
+      ctx.status = 400;
+      ctx.body = { error: "request_id y status son requeridos" };
+      return;
+    }
+
+    const intent = await ctx.orm.PurchaseIntent.findOne({ where: { request_id } });
+    if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "PurchaseIntent no encontrado" };
+      return;
+    }
+
+    intent.status = status;
+    await intent.save();
+
+    ctx.status = 200;
+    ctx.body = { message: "Estado actualizado", request_id, status };
+    console.log(`🟢 PurchaseIntent ${request_id} → ${status}`);
+  } catch (err) {
+    console.error("Error actualizando estado:", err.message);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
+  }
+});
+
 
 module.exports = router;

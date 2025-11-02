@@ -1,10 +1,12 @@
 const Router = require("@koa/router");
-const { sendPurchaseRequest } = require("../../broker/mqttClient");
-
+const { client: mqttClient } = require("../../broker/mqttClient");
+const {getUfValue} = require("../utils/uf");
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
+const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqttClient');
 const authenticate = require('../middlewares/authenticate');
-
+const { tx } = require('../utils/transactions.js');
+const { send } = require("process");
 // Para idempotencia (validar UUIDs)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
@@ -12,10 +14,11 @@ const isUuid = (value) => UUID_REGEX.test(String(value || ""));
 const router = new Router();
 
 // Endpoint para crear una solicitud de compra (ahora autenticado)
-router.post("create.purchase", "/", authenticate, async (ctx) => {
+router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
   try {
     const { property_url } = ctx.request.body;
     if (!property_url) {
+
       ctx.body = { error: "property_url es requerido" };
       ctx.status = 400;
       return;
@@ -38,75 +41,30 @@ router.post("create.purchase", "/", authenticate, async (ctx) => {
       ctx.status = 409; // Conflict
       return;
     }
-
-    // BLOQUE RF03: Wallet + PurchaseIntent (minimo invasivo)
-    const email = ctx.state.user?.email || ctx.state.user?.mail;
-    const priceNum = Number(property.price);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      ctx.status = 422;
-      ctx.body = { error: 'Precio inválido en la propiedad' };
-      return;
+    let priceNum;
+    if (property.currency == "UF"){
+      const ufValue = await getUfValue();
+      priceNum = Number(property.price) * ufValue * 0.1;
+      console.log("Precio en CLP calculado desde UF:", priceNum);
     }
-    const price10 = priceNum * 0.10;
-    const currency = property.currency || 'CLP';
-
-    // Wallet: validar y descontar (bloqueo de fondos)
-    const [wallet] = await ctx.orm.Wallet.findOrCreate({
-      where: { email },
-      defaults: { balance: 0 },
-    });
-    const balanceNum = Number(wallet.balance || 0);
-    if (balanceNum < price10) {
-      ctx.status = 402; // Payment Required
-      ctx.body = { error: 'Saldo insuficiente', required: price10, balance: balanceNum };
-      return;
+    else{
+      priceNum = Number(property.price) * 0.1;
     }
-    wallet.balance = balanceNum - price10;
-    await wallet.save();
 
-    // Crear intención PENDING (sin tocar offers aquí)
     const request_id = randomUUID();
-    await ctx.orm.PurchaseIntent.create({
-      request_id,
-      group_id: process.env.GROUP_ID || '11',
-      url: property.url,
-      origin: 0,
-      operation: 'BUY',
-      status: 'PENDING',
-      price_amount: price10.toFixed(2),
-      price_currency: currency,
-      email,
-      propertieId: property.id,
-    });
-    // FIN BLOQUE RF03
+    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
-    // 2. Publicar solicitud al broker (RF05)
-    console.log(`Enviando solicitud de compra para: ${property.name} (${property.offers} offers disponibles) [request_id=${request_id}]`);
-    // Intento 1 RNF10 (+ posibilidad de retry de usuario fuera de este flujo)
-    try {
-      await sendPurchaseRequest(property_url, request_id);
-    } catch (e1) {
-      console.warn("Compra: intento 1 falló, reintentando 1 vez…", e1.message || e1);
-      try {
-        await sendPurchaseRequest(property_url, request_id);
-      } catch (e2) {
-        ctx.status = 502;
-        ctx.body = {
-          error: "Solicitud de compra fallida tras 1 reintento",
-          request_id,
-          details: e2.message || String(e2),
-        };
-        return;
-      }
-    }
+
+    sendPurchaseRequest(property_url, request_id, trx.token);
 
     ctx.body = {
       message: "Solicitud de compra enviada",
-      request_id,
       property_url: property_url,
       property_name: property.name,
       available_offers: property.offers,
       status: "pending",
+      deposit_token : trx.token,
+      deposit_url : trx.url,
     };
     ctx.status = 201;
 
@@ -114,6 +72,150 @@ router.post("create.purchase", "/", authenticate, async (ctx) => {
     console.error("Error en solicitud de compra:", error);
     ctx.body = { error: "Error interno del servidor" };
     ctx.status = 500;
+  }
+});
+
+router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx) => {
+  try {
+    const { property_url, property_id } = ctx.request.body || {};
+
+    if (!property_url && !property_id) {
+      ctx.status = 400;
+      ctx.body = { error: 'property_url o property_id es requerido' };
+      return;
+    }
+
+    // Buscar propiedad por id o url
+    const property = property_id
+      ? await ctx.orm.Propertie.findByPk(property_id)
+      : await ctx.orm.Propertie.findOne({ where: { url: property_url } });
+
+    if (!property) {
+      ctx.status = 404;
+      ctx.body = { error: 'Propiedad no encontrada' };
+      return;
+    }
+
+    const email = ctx.state.user?.email || ctx.state.user?.mail;
+    if (!email) {
+      ctx.status = 400;
+      ctx.body = { error: 'Usuario sin email en el token' };
+      return;
+    }
+
+    const priceNum = Number(property.price || 0);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      ctx.status = 422;
+      ctx.body = { error: 'Precio inválido en la propiedad' };
+      return;
+    }
+
+    const price10 = Number((priceNum * 0.10).toFixed(2));
+
+    // Evitar duplicados: buscar intención PENDING existente
+    const existingIntent = await ctx.orm.PurchaseIntent.findOne({
+      where: {
+        propertieId: property.id,
+        email,
+        status: 'PENDING',
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    let request_id;
+    if (existingIntent) {
+      request_id = existingIntent.request_id;
+      console.log(`Reutilizando PurchaseIntent existente request_id=${request_id} para property_id=${property.id}`);
+    } else {
+      request_id = randomUUID();
+      await ctx.orm.PurchaseIntent.create({
+        request_id,
+        group_id: process.env.GROUP_ID || '11',
+        url: property.url,
+        origin: 0,
+        operation: 'BUY',
+        status: 'PENDING',
+        price_amount: price10.toFixed(2),
+        price_currency: property.currency || 'CLP',
+        email,
+        propertieId: property.id,
+      });
+    }
+    ctx.status = 201;
+    ctx.body = {
+      message: existingIntent ? 'Intención existente reutilizada' : 'Intención creada',
+      request_id,
+      property_url: property.url,
+      property_name: property.name,
+      available_offers: property.offers,
+      status: 'pending',
+    };
+  } catch (err) {
+    console.error('create-intent error:', err);
+    ctx.status = 500;
+    ctx.body = { error: 'Error interno' };
+  }
+});
+
+router.post('/commit', authenticate, async (ctx) => {
+  try {
+    const { token_ws, property_id, request_id } = ctx.request.body;
+    if (!token_ws || !property_id) {
+      ctx.status = 400;
+      ctx.body = { error: 'token_ws y property_id son requeridos' };
+      return;
+    }
+
+    let confirmedTx;
+    try {
+      confirmedTx = await tx.commit(String(token_ws));
+    } catch (err) {
+      console.error('Error confirmando transacción en Transbank:', err);
+      ctx.status = 502;
+      ctx.body = { error: 'Error confirmando transacción' };
+      return;
+    }
+
+    // Si Transbank rechazó la compra
+    if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
+      ctx.status = 400;
+      ctx.body = { message: 'Transacción no aprobada', details: confirmedTx };
+      sendValidationResult('REJECTED', request_id);
+      return;
+    }
+
+    // Si está aprobada, replicamos la lógica de create.purchase: crear intención y publicar request
+    const property = await ctx.orm.Propertie.findByPk(property_id);
+    if (!property) {
+      ctx.status = 404;
+      ctx.body = { error: 'Propiedad no encontrada' };
+      return;
+    }
+
+    if (property.offers <= 0) {
+      ctx.status = 400;
+      ctx.body = { error: 'No hay ofertas disponibles' };
+      sendValidationResult('OK', request_id);
+      return;
+    }
+
+    sendValidationResult('ACCEPTED', request_id);
+
+
+    ctx.status = 201;
+    ctx.body = {
+      message: 'Compra confirmada y solicitud enviada',
+      request_id,
+      property_url: property.url,
+      property_name: property.name,
+      available_offers: property.offers,
+      status: 'pending'
+    };
+    return;
+  } catch (error) {
+    console.error('Error en /commit:', error);
+    ctx.status = 500;
+    ctx.body = { error: 'Error interno del servidor' };
   }
 });
 

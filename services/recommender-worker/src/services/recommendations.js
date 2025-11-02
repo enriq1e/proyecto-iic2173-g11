@@ -14,11 +14,22 @@ function parseBedrooms(bedroomsStr) {
 	return m ? Number(m[1]) : null;
 }
 
-// Extrae el área base (antes de la coma) de la ubicación
+// Extrae un "área" representativa de la ubicación (heurística: último token significativo)
 function extractArea(locationText) {
 	if (!locationText) return null;
-	const part = String(locationText).split(',')[0].trim();
-	return part ? part.toLowerCase() : null;
+	const parts = String(locationText)
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (!parts.length) return null;
+	const blacklist = new Set(['chile']);
+	for (let i = parts.length - 1; i >= 0; i--) {
+		const tok = parts[i].toLowerCase();
+		if (blacklist.has(tok)) continue;
+		if (/[a-záéíóúñ]/i.test(tok) && tok.length >= 4) return tok;
+	}
+	// fallback: primer token
+	return parts[0].toLowerCase();
 }
 
 // Axios instance for geocoding with explicit User-Agent (Nominatim based services require it)
@@ -121,20 +132,34 @@ async function computeRecommendations({ userId, propertyId }) {
 	const baseLat = baseGeo?.lat ?? null;
 	const baseLon = baseGeo?.lon ?? null;
 
-	// 2) Filtrar por mismos dormitorios, precio <= base y misma área
+	// 2) Filtrar por mismos dormitorios, precio <= base y misma área (estricto)
 	const all = await fetchAllProperties(500);
-	const prefiltered = all.filter((p) => {
+	const strict = all.filter((p) => {
 		if (!p || String(p.id) === String(baseProp.id)) return false;
 		const b = parseBedrooms(p.bedrooms);
 		const price = toNumber(p.price);
 		if (b == null || price == null || baseBedrooms == null || basePrice == null) return false;
 		if (b !== baseBedrooms) return false;
 		if (price > basePrice) return false;
-		// compara área (antes de la coma) de la ubicación
+		// compara área representativa de la ubicación
 		const candArea = extractArea(p.location || '');
 		if (baseArea && candArea && candArea !== baseArea) return false;
 		return true;
 	});
+
+	// Si no hay candidatos estrictos, relajamos el criterio de área
+	const prefiltered = strict.length > 0 ? strict : all.filter((p) => {
+		if (!p || String(p.id) === String(baseProp.id)) return false;
+		const b = parseBedrooms(p.bedrooms);
+		const price = toNumber(p.price);
+		if (b == null || price == null || baseBedrooms == null || basePrice == null) return false;
+		if (b !== baseBedrooms) return false;
+		if (price > basePrice) return false;
+		return true;
+	});
+	if (strict.length === 0) {
+		console.warn('[recs] no strict area matches; using relaxed area filter');
+	}
 
 	let enriched = [];
 	if (baseLat != null && baseLon != null) {

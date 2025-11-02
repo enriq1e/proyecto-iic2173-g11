@@ -1,15 +1,11 @@
 const Router = require("@koa/router");
-const { sendPurchaseRequest } = require("../../broker/mqttClient");
+const { sendPurchaseRequest, sendValidationResult } = require("../../broker/mqttClient");
 const { enqueueRecommendationJob } = require('../services/jobsClient');
-
-const { client: mqttClient } = require("../../broker/mqttClient");
-const {getUfValue} = require("../utils/uf");
+const { getUfValue } = require("../utils/uf");
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
-const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqttClient');
 const authenticate = require('../middlewares/authenticate');
 const { tx } = require('../utils/transactions.js');
-const { send } = require("process");
 // Para idempotencia (validar UUIDs)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));

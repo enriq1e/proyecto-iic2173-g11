@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { haversine } = require('../utils/haversine');
+const { getUfValue } = require('../utils/uf');
 
 const PROPERTIES_API_BASE = process.env.PROPERTIES_API_BASE;
 const GEOCODE_API_KEY = process.env.GEOCODE_API_KEY;
@@ -7,27 +8,16 @@ const GEOCODE_API_KEY = process.env.GEOCODE_API_KEY;
 // Cache simple por ejecución para no repetir geocoding
 const geocodeCache = new Map();
 
-// --- Utilidades de precios / UF ---
-async function getUfValue() {
-	const url = process.env.UF_API_URL || 'https://mindicador.cl/api/uf';
-	try {
-		const { data } = await axios.get(url, { timeout: 5000 });
-		const valor = data?.serie?.[0]?.valor;
-		if (!valor) throw new Error('UF sin valor');
-		return Number(valor);
-	} catch (err) {
-		const fallback = Number(process.env.UF_FALLBACK || 40000);
-		console.error(`[UF] Error obteniendo UF (${err?.message}). Usando fallback=${fallback}`);
-		return fallback;
-	}
-}
+//---------- Utilidades ------
 
+// Parsea valor numérico desde texto 
 function parseNumeric(val) {
 	if (val == null) return null;
 	const n = Number(String(val).replace(/[\s.,]/g, m => (m === ',' ? '.' : ''))
 		.replace(/[^\d.]/g, ''));
 	return Number.isFinite(n) ? n : null;
 }
+
 
 function normalizePriceCLP(price, currency, ufValue) {
 	if (price == null) return null;
@@ -47,22 +37,12 @@ function parseBedrooms(bedroomsStr) {
 	return m ? Number(m[1]) : null;
 }
 
-// Extrae un "área" representativa de la ubicación (heurística: último token significativo)
+// Extrae la comuna: último segmento después de la última coma
 function extractArea(locationText) {
 	if (!locationText) return null;
-	const parts = String(locationText)
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean);
+	const parts = String(locationText).split(',').map(s => s.trim()).filter(Boolean);
 	if (!parts.length) return null;
-	const blacklist = new Set(['chile']);
-	for (let i = parts.length - 1; i >= 0; i--) {
-		const tok = parts[i].toLowerCase();
-		if (blacklist.has(tok)) continue;
-		if (/[a-záéíóúñ]/i.test(tok) && tok.length >= 4) return tok;
-	}
-	// fallback: primer token
-	return parts[0].toLowerCase();
+	return parts[parts.length - 1].toLowerCase();
 }
 
 // Axios instance for geocoding with explicit User-Agent (Nominatim based services require it)
@@ -70,7 +50,7 @@ const geocodeHttp = axios.create({
 	baseURL: 'https://geocode.maps.co',
 	timeout: 8000,
 	headers: {
-		'User-Agent': process.env.GEOCODE_USER_AGENT || 'arquisis-recommender/1.0',
+		'User-Agent': process.env.GEOCODE_USER_AGENT,
 	},
 });
 
@@ -140,6 +120,10 @@ function toNumberCLP(val, currency, ufValue) {
 	return normalizePriceCLP(val, currency, ufValue);
 }
 
+
+
+// ---------- Logica principal------
+
 // Calcula recomendaciones según reglas del enunciado
 async function computeRecommendations({ userId, propertyId }) {
 	if (!propertyId) {
@@ -158,7 +142,7 @@ async function computeRecommendations({ userId, propertyId }) {
 
 	const baseBedrooms = parseBedrooms(baseProp.bedrooms);
 	const basePrice = toNumberCLP(baseProp.price, baseProp.currency, ufValue);
-	const baseLocationText = baseProp.location || '';
+	const baseLocationText = baseProp.location;
 	const baseArea = extractArea(baseLocationText);
 
 	// Geocodificar base para obtener lat/lon (si falla, haremos fallback sin distancia)

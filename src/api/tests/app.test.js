@@ -13,7 +13,7 @@ describe('API Propiedades', () => {
       app.context.orm = {
         Propertie: {
           findAll: jest.fn().mockResolvedValue([
-            { id: 530, location: 'Santiago', price: 1000, currency: '$' },
+            { id: 530, location: 'Quilpue', price: 1000, currency: '$' },
           ]),
         },
       };

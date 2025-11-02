@@ -108,9 +108,10 @@ client.on("connect", async () => {
 });
 
 // Publicar solicitud de compra 
-function sendPurchaseRequest(propertyUrl, requestId) {
+function sendPurchaseRequest(propertyUrl, requestId, deposit_token) {
   const purchaseRequest = {
     request_id: requestId || randomUUID(),
+    deposit_token: deposit_token,
     group_id: Number(process.env.GROUP_ID),
     timestamp: new Date().toISOString(),
     url: propertyUrl,
@@ -130,6 +131,23 @@ function sendPurchaseRequest(propertyUrl, requestId) {
       console.error("Error publicando solicitud:", err.message);
       throw err;
     });
+}
+
+function sendValidationResult(status, requestId, reason = null) {
+  const validationMessage = {
+    request_id: requestId,
+    status,
+    reason,
+    timestamp: new Date().toISOString()};
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_VALIDATION, JSON.stringify(validationMessage)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  ).then(() => {
+    console.log("Validación enviada:", requestId, status);
+  }
+  ).catch((err) => {
+    console.error("Error publicando validación:", err.message);
+    throw err;});
 }
 
 if (isBroker) {
@@ -229,4 +247,4 @@ if (isBroker) {
 
 client.on("error", (error) => console.error("MQTT error:", error.message));
 
-module.exports = { sendPurchaseRequest };
+module.exports = { sendPurchaseRequest, sendValidationResult };

@@ -10,6 +10,7 @@ const authenticate = async (ctx, next) => {
     ctx.body = { error: "Token requerido" };
     return;
   }
+  
 
   const token = authHeader.split(" ")[1];
   try {

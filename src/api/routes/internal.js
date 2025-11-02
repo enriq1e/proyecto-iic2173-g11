@@ -25,14 +25,21 @@ router.post('/recommendations', async (ctx) => {
       ctx.body = { error: 'userId and propertyId are required' };
       return;
     }
+    // Convertimos propertyId a entero (la columna basePropertyId es INTEGER)
+    const basePropertyId = Number(propertyId);
+    if (!Number.isFinite(basePropertyId)) {
+      ctx.status = 400;
+      ctx.body = { error: 'propertyId must be a valid integer' };
+      return;
+    }
     const ids = Array.isArray(recommendations)
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)
       : [];
 
     // Upsert por (userId, basePropertyId)
     const [rec, created] = await ctx.orm.Recommendation.findOrCreate({
-      where: { userId, basePropertyId: propertyId },
-      defaults: { userId, basePropertyId: propertyId, recommendationIds: ids },
+      where: { userId, basePropertyId },
+      defaults: { userId, basePropertyId, recommendationIds: ids },
     });
     if (!created) {
       rec.recommendationIds = ids;

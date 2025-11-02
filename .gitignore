@@ -1,7 +1,13 @@
+services/recommender-master/.env
+services/recommender-worker/.env
 node_modules/
 .env
 *.pem
 *.txt
 *.pdf
 yarn.lock
+Enunciado_E2.md
+instructions.md
+image.png
+recommender.md
 coverage/

@@ -1,0 +1,52 @@
+services:
+  # Servicio de Redis para la cola de trabajos
+  redis:
+    image: redis:7-alpine
+    container_name: recommender_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # JobMaster del recomendador
+  recommender-master:
+    build:
+      context: ./services/recommender-master
+      dockerfile: Dockerfile
+    container_name: recommender_master
+    env_file:
+      - ./services/recommender-master/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=8080
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/heartbeat"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Worker del recomendador
+  recommender-worker:
+    build:
+      context: ./services/recommender-worker
+      dockerfile: Dockerfile
+    container_name: recommender_worker
+    env_file:
+      - ./services/recommender-worker/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - WORKER_CONCURRENCY=2
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

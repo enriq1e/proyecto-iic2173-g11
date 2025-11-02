@@ -1,5 +1,4 @@
 const Router = require("@koa/router");
-const { sendPurchaseRequest } = require("../../broker/mqttClient");
 const { enqueueRecommendationJob } = require('../services/jobsClient');
 
 const { client: mqttClient } = require("../../broker/mqttClient");

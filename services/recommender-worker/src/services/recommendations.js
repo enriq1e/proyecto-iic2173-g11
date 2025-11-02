@@ -7,6 +7,39 @@ const GEOCODE_API_KEY = process.env.GEOCODE_API_KEY;
 // Cache simple por ejecución para no repetir geocoding
 const geocodeCache = new Map();
 
+// --- Utilidades de precios / UF ---
+async function getUfValue() {
+	const url = process.env.UF_API_URL || 'https://mindicador.cl/api/uf';
+	try {
+		const { data } = await axios.get(url, { timeout: 5000 });
+		const valor = data?.serie?.[0]?.valor;
+		if (!valor) throw new Error('UF sin valor');
+		return Number(valor);
+	} catch (err) {
+		const fallback = Number(process.env.UF_FALLBACK || 40000);
+		console.error(`[UF] Error obteniendo UF (${err?.message}). Usando fallback=${fallback}`);
+		return fallback;
+	}
+}
+
+function parseNumeric(val) {
+	if (val == null) return null;
+	const n = Number(String(val).replace(/[\s.,]/g, m => (m === ',' ? '.' : ''))
+		.replace(/[^\d.]/g, ''));
+	return Number.isFinite(n) ? n : null;
+}
+
+function normalizePriceCLP(price, currency, ufValue) {
+	if (price == null) return null;
+	const text = String(price);
+	const n = parseNumeric(text);
+	if (n == null) return null;
+	const cur = (currency || '').toString().toUpperCase();
+	const isUF = cur === 'UF' || /\bUF\b/i.test(text);
+	if (isUF) return Math.round(n * ufValue);
+	return Math.round(n); // asumir CLP
+}
+
 // Parsea "n dormitorios" a n
 function parseBedrooms(bedroomsStr) {
 	if (!bedroomsStr) return null;
@@ -102,11 +135,9 @@ async function fetchAllProperties(limit = 300) {
 	return Array.isArray(data) ? data : (data?.rows || []);
 }
 
-// Convierte precio textual a número
-function toNumber(val) {
-	if (val == null) return null;
-	const n = Number(String(val).replace(/[^\d.]/g, ''));
-	return Number.isFinite(n) ? n : null;
+// Convierte precio textual a número CLP (normalizado)
+function toNumberCLP(val, currency, ufValue) {
+	return normalizePriceCLP(val, currency, ufValue);
 }
 
 // Calcula recomendaciones según reglas del enunciado
@@ -118,12 +149,15 @@ async function computeRecommendations({ userId, propertyId }) {
 	// Reset cache per invocation
 	geocodeCache.clear();
 
+	// Obtener UF para normalizar precios
+	const ufValue = await getUfValue();
+
 	// 1) Obtener ubicación, dormitorios y precio de la propiedad base
 	const baseProp = await fetchPropertyById(propertyId);
 	if (!baseProp) throw new Error('Base property not found');
 
 	const baseBedrooms = parseBedrooms(baseProp.bedrooms);
-	const basePrice = toNumber(baseProp.price);
+	const basePrice = toNumberCLP(baseProp.price, baseProp.currency, ufValue);
 	const baseLocationText = baseProp.location || '';
 	const baseArea = extractArea(baseLocationText);
 
@@ -137,7 +171,7 @@ async function computeRecommendations({ userId, propertyId }) {
 	const strict = all.filter((p) => {
 		if (!p || String(p.id) === String(baseProp.id)) return false;
 		const b = parseBedrooms(p.bedrooms);
-		const price = toNumber(p.price);
+		const price = toNumberCLP(p.price, p.currency, ufValue);
 		if (b == null || price == null || baseBedrooms == null || basePrice == null) return false;
 		if (b !== baseBedrooms) return false;
 		if (price > basePrice) return false;
@@ -151,7 +185,7 @@ async function computeRecommendations({ userId, propertyId }) {
 	const prefiltered = strict.length > 0 ? strict : all.filter((p) => {
 		if (!p || String(p.id) === String(baseProp.id)) return false;
 		const b = parseBedrooms(p.bedrooms);
-		const price = toNumber(p.price);
+		const price = toNumberCLP(p.price, p.currency, ufValue);
 		if (b == null || price == null || baseBedrooms == null || basePrice == null) return false;
 		if (b !== baseBedrooms) return false;
 		if (price > basePrice) return false;
@@ -171,7 +205,7 @@ async function computeRecommendations({ userId, propertyId }) {
 			enriched.push({
 				id: p.id,
 				name: p.name,
-				price: toNumber(p.price),
+				price: toNumberCLP(p.price, p.currency, ufValue),
 				location: p.location,
 				img: p.img,
 				url: p.url,
@@ -189,7 +223,7 @@ async function computeRecommendations({ userId, propertyId }) {
 			.map((p) => ({
 				id: p.id,
 				name: p.name,
-				price: toNumber(p.price),
+				price: toNumberCLP(p.price, p.currency, ufValue),
 				location: p.location,
 				img: p.img,
 				url: p.url,

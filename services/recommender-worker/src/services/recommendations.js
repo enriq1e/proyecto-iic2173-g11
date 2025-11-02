@@ -21,30 +21,59 @@ function extractArea(locationText) {
 	return part ? part.toLowerCase() : null;
 }
 
-// Geocoding directo desde dirección a lat/lon
+// Axios instance for geocoding with explicit User-Agent (Nominatim based services require it)
+const geocodeHttp = axios.create({
+	baseURL: 'https://geocode.maps.co',
+	timeout: 8000,
+	headers: {
+		'User-Agent': process.env.GEOCODE_USER_AGENT || 'arquisis-recommender/1.0',
+	},
+});
+
+function sleep(ms) {
+	return new Promise((res) => setTimeout(res, ms));
+}
+
+// Geocoding directo desde dirección a lat/lon, con cache y reintentos ligeros
 async function forwardGeocode(q) {
 	if (!q) return null;
 	const key = `fwd:${q}`;
 	if (geocodeCache.has(key)) return geocodeCache.get(key);
-	try {
-		const { data } = await axios.get('https://geocode.maps.co/search', {
-			params: { q, api_key: GEOCODE_API_KEY },
-			timeout: 8000,
-		});
-		const first = Array.isArray(data) && data.length ? data[0] : null;
-		const result = first
-			? {
-					lat: Number(first.lat),
-					lon: Number(first.lon),
-					address: first.address || {},
-					display_name: first.display_name,
-				}
-			: null;
-		geocodeCache.set(key, result);
-		return result;
-	} catch (e) {
-		return null;
+	const params = { q, api_key: GEOCODE_API_KEY };
+	let lastError;
+	for (let attempt = 1; attempt <= 2; attempt++) {
+		try {
+			const { data } = await geocodeHttp.get('/search', { params });
+			const first = Array.isArray(data) && data.length ? data[0] : null;
+			const result = first
+				? {
+					  lat: Number(first.lat),
+					  lon: Number(first.lon),
+					  address: first.address || {},
+					  display_name: first.display_name,
+				  }
+				: null;
+			geocodeCache.set(key, result);
+			return result;
+		} catch (e) {
+			lastError = e;
+			// Backoff pequeño en casos de rate limit o errores transitorios
+			const status = e?.response?.status;
+			if (attempt < 2 && (status === 429 || status >= 500 || !status)) {
+				await sleep(600);
+				continue;
+			}
+			break;
+		}
 	}
+	// Log de fallo
+	try {
+		const msg = lastError?.response?.status
+			? `status ${lastError.response.status}`
+			: lastError?.code || 'unknown';
+		console.warn('[geo] forwardGeocode failed:', msg, 'q=', String(q).slice(0, 64));
+	} catch {}
+	return null;
 }
 
 // Obtiene una propiedad por ID desde el servicio externo
@@ -87,11 +116,10 @@ async function computeRecommendations({ userId, propertyId }) {
 	const baseLocationText = baseProp.location || '';
 	const baseArea = extractArea(baseLocationText);
 
-	// Geocodificar base para obtener lat/lon
+	// Geocodificar base para obtener lat/lon (si falla, haremos fallback sin distancia)
 	const baseGeo = await forwardGeocode(baseLocationText);
-	if (!baseGeo) throw new Error('Failed to geocode base property');
-	const baseLat = baseGeo.lat;
-	const baseLon = baseGeo.lon;
+	const baseLat = baseGeo?.lat ?? null;
+	const baseLon = baseGeo?.lon ?? null;
 
 	// 2) Filtrar por mismos dormitorios, precio <= base y misma área
 	const all = await fetchAllProperties(500);
@@ -108,26 +136,49 @@ async function computeRecommendations({ userId, propertyId }) {
 		return true;
 	});
 
-	// 3) Geocodificar candidatos y calcular distancia
-	const enriched = [];
-	for (const p of prefiltered) {
-		const geo = await forwardGeocode(p.location || '');
-		if (!geo) continue;
-		const distance = haversine(baseLat, baseLon, geo.lat, geo.lon);
-		enriched.push({
-			id: p.id,
-			name: p.name,
-			price: toNumber(p.price),
-			location: p.location,
-			img: p.img,
-			url: p.url,
-			bedrooms: parseBedrooms(p.bedrooms),
-			distance,
-		});
+	let enriched = [];
+	if (baseLat != null && baseLon != null) {
+		// 3) Geocodificar candidatos y calcular distancia
+		for (const p of prefiltered) {
+			const geo = await forwardGeocode(p.location || '');
+			if (!geo) continue;
+			const distance = haversine(baseLat, baseLon, geo.lat, geo.lon);
+			enriched.push({
+				id: p.id,
+				name: p.name,
+				price: toNumber(p.price),
+				location: p.location,
+				img: p.img,
+				url: p.url,
+				bedrooms: parseBedrooms(p.bedrooms),
+				distance,
+				timestamp: p.timestamp ? new Date(p.timestamp).getTime() : 0,
+			});
+		}
+		// Ordenar por distancia y luego por precio
+		enriched.sort((a, b) => (a.distance - b.distance) || (a.price - b.price));
+	} else {
+		// Fallback: sin geocoding de base. Ordenar por cercanía de precio y recencia.
+		console.warn('[geo] base geocode missing — using area/price fallback');
+		enriched = prefiltered
+			.map((p) => ({
+				id: p.id,
+				name: p.name,
+				price: toNumber(p.price),
+				location: p.location,
+				img: p.img,
+				url: p.url,
+				bedrooms: parseBedrooms(p.bedrooms),
+				distance: null,
+				timestamp: p.timestamp ? new Date(p.timestamp).getTime() : 0,
+			}))
+			.sort((a, b) => {
+				const da = Math.abs((a.price ?? 0) - (basePrice ?? 0));
+				const db = Math.abs((b.price ?? 0) - (basePrice ?? 0));
+				if (da !== db) return da - db;
+				return (b.timestamp || 0) - (a.timestamp || 0);
+			});
 	}
-
-	// 3b) Ordenar por distancia y luego por precio
-	enriched.sort((a, b) => (a.distance - b.distance) || (a.price - b.price));
 
 	// 4) Tomar los 3 primeros
 	const top = enriched.slice(0, 3);

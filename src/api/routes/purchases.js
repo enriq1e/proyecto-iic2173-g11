@@ -52,7 +52,7 @@ router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
     }
 
     const request_id = randomUUID();
-    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
+    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), `${process.env?.API_URL}/completed-purchase?property_id=${property.id}&request_id=${request_id}` || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
 
     sendPurchaseRequest(property_url, request_id, trx.token);

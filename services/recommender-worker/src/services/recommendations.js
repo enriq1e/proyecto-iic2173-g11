@@ -26,7 +26,7 @@ function normalizePriceCLP(price, currency, ufValue) {
 	const n = parseNumeric(text);
 	if (n == null) return null;
 	const cur = (currency || '').toString().toUpperCase();
-	const isUF = cur === 'UF' || /\bUF\b/i.test(text);
+	const isUF = cur === 'UF';
 	if (isUF) return Math.round(n * ufValue);
 	return Math.round(n); // asumir CLP
 }

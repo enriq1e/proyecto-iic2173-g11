@@ -20,11 +20,11 @@ const transporter = nodemailer.createTransport({
 async function sendPaymentEmail(to, subject, html) {
   try {
     const mailOptions = {
-      from: `"LegitHomie 🏠" <${process.env.SENDER_EMAIL}>`,
+      from: `"LegitHomie Grupo 11" <${process.env.SENDER_EMAIL}>`,
       to,
       subject,
       html,
-      text: html.replace(/<[^>]*>/g, ""), // versión texto
+      text: html.replace(/<[^>]*>/g, ""),
     };
 
     const info = await transporter.sendMail(mailOptions);

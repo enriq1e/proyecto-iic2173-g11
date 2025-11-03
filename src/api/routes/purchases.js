@@ -315,37 +315,59 @@ router.post("reduce.offers", "/reduce-offers", async (ctx) => {
     const { property_url, operation } = ctx.request.body;
 
     if (!property_url) {
-      ctx.body = { error: "property_url es requerido" };
       ctx.status = 400;
+      ctx.body = { error: "property_url es requerido" };
       return;
     }
 
-    const cleanUrl = property_url.split("#")[0].split("?")[0];
-    const property = await ctx.orm.Propertie.findOne({ where: { url: cleanUrl } });
+    const cleanUrl = property_url.split("#")[0].split("?")[0].trim();
+    console.log(`[REDUCE] URL original: ${property_url}`);
+    console.log(`[REDUCE] URL limpia: ${cleanUrl}`);
+
+    // Buscar por coincidencia exacta de URL limpia
+    let property = await ctx.orm.Propertie.findOne({ where: { url: cleanUrl } });
+
+    // Si no se encuentra, probar coincidencia parcial (fallback)
+    if (!property) {
+      property = await ctx.orm.Propertie.findOne({
+        where: ctx.orm.Sequelize.where(
+          ctx.orm.Sequelize.fn("replace", ctx.orm.Sequelize.col("url"), "#", ""),
+          { [ctx.orm.Sequelize.Op.like]: `%${cleanUrl}%` }
+        ),
+      });
+    }
 
     if (!property) {
-      ctx.body = { error: "Propiedad no encontrada" };
+      console.warn(`[REDUCE] Propiedad no encontrada para URL: ${cleanUrl}`);
       ctx.status = 404;
+      ctx.body = { error: "Propiedad no encontrada" };
       return;
     }
 
+    // 🔹 Reducir oferta (aunque operation no se envíe)
     if ((operation === "REDUCE" || !operation) && Number(property.offers || 0) > 0) {
+      console.log(`[REDUCE] Ofertas antes: ${property.offers} (${property.name})`);
       property.offers = Number(property.offers) - 1;
       await property.save();
+      console.log(`[REDUCE] Guardado. Ofertas ahora: ${property.offers}`);
 
-      console.log(`Offers reducidas a ${property.offers} para: ${property.name}`);
+      ctx.status = 200;
       ctx.body = {
         message: "Offer reducida",
-        remaining_offers: property.offers
+        remaining_offers: property.offers,
       };
+      return;
     }
 
     ctx.status = 200;
-
+    ctx.body = {
+      message: "No se redujo (condición no cumplida)",
+      offers: property.offers,
+    };
   } catch (error) {
     console.error("Error gestionando offers:", error);
-    ctx.body = { error: "Error interno del servidor" };
     ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
   }
 });
 

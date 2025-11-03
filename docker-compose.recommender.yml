@@ -35,12 +35,12 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Worker del recomendador
+  # Worker del recomendador (escalable)
   recommender-worker:
     build:
       context: ./services/recommender-worker
       dockerfile: Dockerfile
-    container_name: recommender_worker
+    # Removido container_name para permitir escalado con --scale
     env_file:
       - ./services/recommender-worker/.env
     environment:
@@ -50,3 +50,5 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      replicas: 3  # Por defecto 3 workers independientes

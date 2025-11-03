@@ -298,8 +298,10 @@ if (isBroker) {
         if (status === "ACCEPTED") {
           try {
             await withFibRetry(
-              () => axios.post(`${process.env.API_URL}/purchases/reduce-offers`, { property_url: propertyUrl }),
-              { maxRetries: 3, baseDelayMs: 1000 }
+                () => axios.post(`${process.env.API_URL}/purchases/reduce-offers`, {
+                property_url: propertyUrl,
+                operation: "REDUCE"
+              }),
             );
             console.log(`[MQTT] Oferta reducida para ${propertyUrl}`);
           } catch (err) {

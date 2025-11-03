@@ -1,3 +1,4 @@
+require('dotenv').config();
 const axios = require('axios');
 const { haversine } = require('../utils/haversine');
 const { getUfValue } = require('../utils/uf');
@@ -50,7 +51,7 @@ const geocodeHttp = axios.create({
 	baseURL: 'https://geocode.maps.co',
 	timeout: 8000,
 	headers: {
-		'User-Agent': process.env.GEOCODE_USER_AGENT,
+		'User-Agent': process.env.GEOCODE_USER_AGENT || 'arquisis-recommender/1.0',
 	},
 });
 
@@ -58,44 +59,70 @@ function sleep(ms) {
 	return new Promise((res) => setTimeout(res, ms));
 }
 
-// Geocoding directo desde dirección a lat/lon, con cache y reintentos ligeros
+// Geocoding directo desde dirección a lat/lon, con cache, reintentos y variantes
 async function forwardGeocode(q) {
 	if (!q) return null;
 	const key = `fwd:${q}`;
 	if (geocodeCache.has(key)) return geocodeCache.get(key);
-	const params = { q, api_key: GEOCODE_API_KEY };
+
+	// Variantes: dirección completa, últimos 2 segmentos, comuna + Chile
+	const parts = String(q).split(',').map(s => s.trim()).filter(Boolean);
+	const comuna = parts.length ? parts[parts.length - 1] : '';
+	const lastTwo = parts.length >= 2 ? `${parts[parts.length - 2]}, ${parts[parts.length - 1]}` : null;
+	const variants = [
+		q,
+		lastTwo,
+		comuna ? `${comuna}, Chile` : null,
+	].filter(Boolean);
+
 	let lastError;
-	for (let attempt = 1; attempt <= 2; attempt++) {
-		try {
-			const { data } = await geocodeHttp.get('/search', { params });
-			const first = Array.isArray(data) && data.length ? data[0] : null;
-			const result = first
-				? {
-					  lat: Number(first.lat),
-					  lon: Number(first.lon),
-					  address: first.address || {},
-					  display_name: first.display_name,
-				  }
-				: null;
-			geocodeCache.set(key, result);
-			return result;
-		} catch (e) {
-			lastError = e;
-			// Backoff pequeño en casos de rate limit o errores transitorios
-			const status = e?.response?.status;
-			if (attempt < 2 && (status === 429 || status >= 500 || !status)) {
-				await sleep(600);
-				continue;
+	for (const variant of variants) {
+		for (let attempt = 1; attempt <= 2; attempt++) {
+			try {
+				const { data } = await geocodeHttp.get('/search', {
+					params: {
+						q: variant,
+						api_key: GEOCODE_API_KEY,
+						countrycodes: 'cl',
+						limit: 1,
+						format: 'json',
+					},
+				});
+				const first = Array.isArray(data) && data.length ? data[0] : null;
+				if (first) {
+					const result = {
+						lat: Number(first.lat),
+						lon: Number(first.lon),
+						address: first.address || {},
+						display_name: first.display_name,
+					};
+					geocodeCache.set(key, result);
+					return result;
+				} else {
+					// No results, try next variant
+					break;
+				}
+			} catch (e) {
+				lastError = e;
+				const status = e?.response?.status;
+				if (attempt < 2 && (status === 429 || status >= 500 || !status)) {
+					await sleep(600);
+					continue;
+				}
+				break;
 			}
-			break;
 		}
 	}
-	// Log de fallo
+	// Log detallado de fallo
 	try {
-		const msg = lastError?.response?.status
-			? `status ${lastError.response.status}`
-			: lastError?.code || 'unknown';
-		console.warn('[geo] forwardGeocode failed:', msg, 'q=', String(q).slice(0, 64));
+		if (lastError) {
+			const msg = lastError?.response?.status
+				? `status ${lastError.response.status}`
+				: lastError?.code || 'unknown';
+			console.warn('[geo] forwardGeocode failed:', msg, 'q=', String(q).slice(0, 96));
+		} else {
+			console.warn('[geo] forwardGeocode no results for q=', String(q).slice(0, 96));
+		}
 	} catch {}
 	return null;
 }

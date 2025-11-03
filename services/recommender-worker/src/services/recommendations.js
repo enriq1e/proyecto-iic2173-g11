@@ -179,6 +179,17 @@ async function computeRecommendations({ userId, propertyId }) {
 
 	// 2) Filtrar por mismos dormitorios, precio <= base y misma área (estricto)
 	const all = await fetchAllProperties(500);
+	
+	// Debug: log de base para entender filtrado
+	console.log('[recs] Base:', {
+		id: baseProp.id,
+		bedrooms: baseBedrooms,
+		priceRaw: baseProp.price,
+		currency: baseProp.currency,
+		priceNormalized: basePrice,
+		area: baseArea,
+	});
+	
 	const strict = all.filter((p) => {
 		if (!p || String(p.id) === String(baseProp.id)) return false;
 		const b = parseBedrooms(p.bedrooms);
@@ -204,6 +215,16 @@ async function computeRecommendations({ userId, propertyId }) {
 	});
 	if (strict.length === 0) {
 		console.warn('[recs] no strict area matches; using relaxed area filter');
+		// Debug: mostrar algunos candidatos relajados con precios normalizados
+		const sample = prefiltered.slice(0, 5).map(p => ({
+			id: p.id,
+			priceRaw: p.price,
+			currency: p.currency,
+			priceNorm: toNumberCLP(p.price, p.currency, ufValue),
+			area: extractArea(p.location || ''),
+			bedrooms: parseBedrooms(p.bedrooms),
+		}));
+		console.log('[recs] Sample of relaxed candidates:', JSON.stringify(sample, null, 2));
 	}
 
 	let enriched = [];

@@ -7,6 +7,9 @@ const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqtt
 const authenticate = require('../middlewares/authenticate');
 const { tx } = require('../utils/transactions.js');
 const { send } = require("process");
+const axios = require("axios");
+const LAMBDA_URL = process.env.BOLETAS_LAMBDA_URL;
+
 // Para idempotencia (validar UUIDs)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
@@ -244,6 +247,49 @@ router.post('/commit', authenticate, async (ctx) => {
     }
 
     sendValidationResult('ACCEPTED', request_id);
+    try {
+      if (!LAMBDA_URL) {
+        console.error("❌ LAMBDA_URL no está definido en el .env");
+      } else {
+        const lambdaBody = {
+          groupName: "Grupo 11",
+          user: {
+            name: ctx.state.user?.name || "Usuario",
+            email: ctx.state.user?.email || ctx.state.user?.mail || "sin-email@uc.cl",
+          },
+          purchase: {
+            id: intent.id,
+            propertyName: property.name,
+            propertyUrl: property.url,
+            amount: intent.price_amount,
+            currency: intent.price_currency,
+            status: "ACCEPTED",
+            date: new Date().toISOString(),
+          },
+        };
+
+        console.log("🟢 Enviando payload a Lambda:", lambdaBody);
+
+        const res = await axios.post(LAMBDA_URL, lambdaBody, { timeout: 15000 });
+        const receiptUrl = res.data?.url;
+
+        if (receiptUrl) {
+          intent.receipt_url = receiptUrl;
+          await intent.save();
+          console.log(`Boleta generada correctamente: ${receiptUrl}`);
+        } else {
+          console.warn("Lambda respondió sin URL de boleta:", res.data);
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error generando boleta con Lambda:");
+      if (err.response) {
+        console.error("Código:", err.response.status);
+        console.error("Respuesta Lambda:", err.response.data);
+      } else {
+        console.error(err.message);
+      }
+    }
 
     ctx.status = 201;
     ctx.body = {
@@ -252,7 +298,8 @@ router.post('/commit', authenticate, async (ctx) => {
       property_url: property.url,
       property_name: property.name,
       available_offers: property.offers,
-      status: 'aceptada'
+      status: 'aceptada',
+      boleta_url: intent.receipt_url || null,
     };
     return;
   } catch (error) {
@@ -273,14 +320,16 @@ router.post("reduce.offers", "/reduce-offers", async (ctx) => {
       return;
     }
 
-    const property = await ctx.orm.Propertie.findOne({ where: { url: property_url } });
+    const cleanUrl = property_url.split("#")[0].split("?")[0];
+    const property = await ctx.orm.Propertie.findOne({ where: { url: cleanUrl } });
+
     if (!property) {
       ctx.body = { error: "Propiedad no encontrada" };
       ctx.status = 404;
       return;
     }
 
-    if (operation === "REDUCE" && Number(property.offers || 0) > 0) {
+    if ((operation === "REDUCE" || !operation) && Number(property.offers || 0) > 0) {
       property.offers = Number(property.offers) - 1;
       await property.save();
 

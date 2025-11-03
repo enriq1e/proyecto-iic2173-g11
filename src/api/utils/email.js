@@ -28,7 +28,7 @@ async function sendPaymentEmail(to, subject, html) {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[SMTP] Correo enviado a ${to} — ID: ${info.messageId}`);
+    console.log(`🟢 Correo enviado a ${to} — ID: ${info.messageId}`);
     return info;
   } catch (err) {
     console.error(`[SMTP] Error enviando correo a ${to}:`, err.message);

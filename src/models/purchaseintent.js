@@ -22,8 +22,8 @@ module.exports = (sequelize, DataTypes) => {
     price_currency: { type: DataTypes.STRING, allowNull: false, defaultValue: 'CLP' },
     email:          { type: DataTypes.STRING, allowNull: false },
 
-      // FK a la propiedad
     propertieId:    { type: DataTypes.INTEGER, allowNull: false },
+    receipt_url:    { type: DataTypes.STRING, allowNull: true },
   }, {
     sequelize,
     modelName: 'PurchaseIntent',

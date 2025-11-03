@@ -1,7 +1,9 @@
 services:
   # Servicio de autenticación
   auth-service:
-    image: public.ecr.aws/r8j3o8f7/api-g11-iic2173:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: auth_service
     command: sh -c "npx sequelize-cli db:migrate && node src/auth/app.js"
     ports:
@@ -23,7 +25,9 @@ services:
 
   # Servicio API principal
   api:
-    image: public.ecr.aws/r8j3o8f7/api-g11-iic2173:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: api_service
     command: sh -c "npx sequelize-cli db:migrate && node -r newrelic src/api/index.js"
     ports:
@@ -46,7 +50,9 @@ services:
 
   # Servicio API réplica 1 (para balanceo de carga)
   api-1:
-    image: public.ecr.aws/r8j3o8f7/api-g11-iic2173:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: api_service_1
     command: sh -c "node src/api/index.js"
     ports:
@@ -68,7 +74,9 @@ services:
 
   # Servicio API réplica 2 (para balanceo de carga)
   api-2:
-    image: public.ecr.aws/r8j3o8f7/api-g11-iic2173:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: api_service_2
     command: sh -c "node src/api/index.js"
     ports:
@@ -90,7 +98,9 @@ services:
 
   # Servicio Broker MQTT
   broker:
-    image: public.ecr.aws/r8j3o8f7/api-g11-iic2173:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: broker_service
     command: ["node", "src/broker/mqttClient.js"]
     depends_on:

@@ -33,4 +33,26 @@ router.post('/', async (ctx) => {
   }
 });
 
+router.get("/by-request/:request_id", async (ctx) => {
+  try {
+    const { request_id } = ctx.params;
+    const event = await ctx.orm.EventLog.findOne({
+      where: { request_id, event_type: "REQUEST" },
+    });
+
+    if (!event) {
+      ctx.status = 404;
+      ctx.body = { error: "EventLog no encontrado" };
+      return;
+    }
+
+    ctx.body = event;
+  } catch (error) {
+    console.error("Error buscando EventLog:", error);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
+  }
+});
+
+
 module.exports = router;

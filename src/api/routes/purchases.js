@@ -1,12 +1,15 @@
 const Router = require("@koa/router");
-const { client: mqttClient } = require("../../broker/mqttClient");
-const {getUfValue} = require("../utils/uf");
+const { sendPurchaseRequest, sendValidationResult } = require("../../broker/mqttClient");
+const { enqueueRecommendationJob } = require('../services/jobsClient');
+const { getUfValue } = require("../utils/uf");
 // agregados minimos para RF03
 const { randomUUID } = require('crypto');
-const { sendPurchaseRequest, sendValidationResult } = require('../../broker/mqttClient');
 const authenticate = require('../middlewares/authenticate');
 const { tx } = require('../utils/transactions.js');
 const { send } = require("process");
+const axios = require("axios");
+const LAMBDA_URL = process.env.BOLETAS_LAMBDA_URL;
+
 // Para idempotencia (validar UUIDs)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
@@ -52,7 +55,7 @@ router.post("create.transaction", "/transaction", authenticate, async (ctx) => {
     }
 
     const request_id = randomUUID();
-    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), `${process.env?.API_URL}/completed-purchase?property_id=${property.id}&request_id=${request_id}` || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
+    const trx = await tx.create(String(property.id), "g11-business", Math.round(priceNum, 0), process.env?.REDIRECT_URL || `http://localhost:5173/completed-purchase?property_id=${property.id}&request_id=${request_id}`);
 
 
     sendPurchaseRequest(property_url, request_id, trx.token);
@@ -159,7 +162,21 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
 
 router.post('/commit', authenticate, async (ctx) => {
   try {
-    const { token_ws, property_id, request_id } = ctx.request.body;
+    const { token_ws, property_id } = ctx.request.body;
+
+    // Buscar el purchaseintent asociado a esta propiedad
+    const intent = await ctx.orm.PurchaseIntent.findOne({
+      where: { propertieId: property_id },
+      order: [["createdAt", "DESC"]],
+    });
+
+    const request_id = intent?.request_id;
+    if (!request_id) {
+      ctx.status = 400;
+      ctx.body = { error: "No se encontró PurchaseIntent para esta propiedad" };
+      return;
+    }
+
     if (!token_ws || !property_id) {
       ctx.status = 400;
       ctx.body = { error: 'token_ws y property_id son requeridos' };
@@ -199,17 +216,84 @@ router.post('/commit', authenticate, async (ctx) => {
       return;
     }
 
-    sendValidationResult('ACCEPTED', request_id);
+    try {
+      await ctx.orm.EventLog.create({
+        topic: "properties/requests",
+        event_type: "REQUEST",
+        timestamp: new Date().toISOString(),
+        url: property.url,
+        request_id,
+        group_id: process.env.GROUP_ID || "unknown",
+        origin: 0,
+        operation: "BUY",
+        status: "PENDING",
+        raw: JSON.stringify({
+          property_id: property.id,
+          property_name: property.name,
+          property_url: property.url,
+          price: property.price,
+          currency: property.currency,
+        }),
+      });
+      console.log(`🔵 EventLog REQUEST creado para ${request_id}`);
+    } catch (err) {
+      console.error("Error creando EventLog REQUEST:", err.message);
+    }
 
+    sendValidationResult('ACCEPTED', request_id);
+    try {
+      if (!LAMBDA_URL) {
+        console.error("❌ LAMBDA_URL no está definido en el .env");
+      } else {
+        const lambdaBody = {
+          groupName: "Grupo 11",
+          user: {
+            name: ctx.state.user?.name || "Usuario",
+            email: ctx.state.user?.email || ctx.state.user?.mail || "sin-email@uc.cl",
+          },
+          purchase: {
+            id: intent.id,
+            propertyName: property.name,
+            propertyUrl: property.url,
+            amount: intent.price_amount,
+            currency: intent.price_currency,
+            status: "ACCEPTED",
+            date: new Date().toISOString(),
+          },
+        };
+
+        console.log("🟢 Enviando payload a Lambda:", lambdaBody);
+
+        const res = await axios.post(LAMBDA_URL, lambdaBody, { timeout: 15000 });
+        const receiptUrl = res.data?.url;
+
+        if (receiptUrl) {
+          intent.receipt_url = receiptUrl;
+          await intent.save();
+          console.log(`Boleta generada correctamente: ${receiptUrl}`);
+        } else {
+          console.warn("Lambda respondió sin URL de boleta:", res.data);
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error generando boleta con Lambda:");
+      if (err.response) {
+        console.error("Código:", err.response.status);
+        console.error("Respuesta Lambda:", err.response.data);
+      } else {
+        console.error(err.message);
+      }
+    }
 
     ctx.status = 201;
     ctx.body = {
-      message: 'Compra confirmada y solicitud enviada',
+      message: 'Compra confirmada y validación enviada',
       request_id,
       property_url: property.url,
       property_name: property.name,
       available_offers: property.offers,
-      status: 'pending'
+      status: 'aceptada',
+      boleta_url: intent.receipt_url || null,
     };
     return;
   } catch (error) {
@@ -225,35 +309,59 @@ router.post("reduce.offers", "/reduce-offers", async (ctx) => {
     const { property_url, operation } = ctx.request.body;
 
     if (!property_url) {
-      ctx.body = { error: "property_url es requerido" };
       ctx.status = 400;
+      ctx.body = { error: "property_url es requerido" };
       return;
     }
 
-    const property = await ctx.orm.Propertie.findOne({ where: { url: property_url } });
+    const cleanUrl = property_url.split("#")[0].split("?")[0].trim();
+    console.log(`[REDUCE] URL original: ${property_url}`);
+    console.log(`[REDUCE] URL limpia: ${cleanUrl}`);
+
+    // Buscar por coincidencia exacta de URL limpia
+    let property = await ctx.orm.Propertie.findOne({ where: { url: cleanUrl } });
+
+    // Si no se encuentra, probar coincidencia parcial (fallback)
     if (!property) {
-      ctx.body = { error: "Propiedad no encontrada" };
+      property = await ctx.orm.Propertie.findOne({
+        where: ctx.orm.Sequelize.where(
+          ctx.orm.Sequelize.fn("replace", ctx.orm.Sequelize.col("url"), "#", ""),
+          { [ctx.orm.Sequelize.Op.like]: `%${cleanUrl}%` }
+        ),
+      });
+    }
+
+    if (!property) {
+      console.warn(`[REDUCE] Propiedad no encontrada para URL: ${cleanUrl}`);
       ctx.status = 404;
+      ctx.body = { error: "Propiedad no encontrada" };
       return;
     }
 
-    if (operation === "REDUCE" && Number(property.offers || 0) > 0) {
+    // 🔹 Reducir oferta (aunque operation no se envíe)
+    if ((operation === "REDUCE" || !operation) && Number(property.offers || 0) > 0) {
+      console.log(`[REDUCE] Ofertas antes: ${property.offers} (${property.name})`);
       property.offers = Number(property.offers) - 1;
       await property.save();
+      console.log(`[REDUCE] Guardado. Ofertas ahora: ${property.offers}`);
 
-      console.log(`Offers reducidas a ${property.offers} para: ${property.name}`);
+      ctx.status = 200;
       ctx.body = {
         message: "Offer reducida",
-        remaining_offers: property.offers
+        remaining_offers: property.offers,
       };
+      return;
     }
 
     ctx.status = 200;
-
+    ctx.body = {
+      message: "No se redujo (condición no cumplida)",
+      offers: property.offers,
+    };
   } catch (error) {
     console.error("Error gestionando offers:", error);
-    ctx.body = { error: "Error interno del servidor" };
     ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
   }
 });
 
@@ -430,6 +538,48 @@ router.post("settle.from.validation", "/settle-from-validation", async (ctx) => 
       raw: {},
     });
 
+    // RF01 E2: si la validación fue exitosa, encolamos recomendaciones (idempotente)
+    if (s === 'ACCEPTED' || s === 'OK') {
+      // evitar duplicados: revisa si ya encolamos para este request
+      const alreadyQueued = await ctx.orm.EventLog.findOne({
+        where: { request_id, event_type: 'RECO_JOB_ENQUEUED' },
+      });
+      if (!alreadyQueued) {
+        // obtener base de datos de la intención para user y propiedad
+        const intent = await ctx.orm.PurchaseIntent.findOne({ where: { request_id } });
+        if (intent) {
+          try {
+            const job = await enqueueRecommendationJob({
+              userId: intent.email,
+              propertyId: String(intent.propertieId),
+              source: 'purchase',
+            });
+            await ctx.orm.EventLog.create({
+              topic: 'jobs/recommendations',
+              event_type: 'RECO_JOB_ENQUEUED',
+              timestamp: new Date().toISOString(),
+              url: requestEvent.url,
+              request_id,
+              status: s,
+              raw: { jobId: job?.jobId },
+            });
+          } catch (e) {
+            console.error('Error encolando recomendaciones:', e?.message || e);
+            // No bloqueamos el asentamiento; solo registramos el fallo
+            await ctx.orm.EventLog.create({
+              topic: 'jobs/recommendations',
+              event_type: 'RECO_JOB_FAILED',
+              timestamp: new Date().toISOString(),
+              url: requestEvent.url,
+              request_id,
+              status: s,
+              raw: { error: e?.message || String(e) },
+            });
+          }
+        }
+      }
+    }
+
     ctx.status = 200;
     ctx.body = {
       message: "Validación asentada",
@@ -444,5 +594,38 @@ router.post("settle.from.validation", "/settle-from-validation", async (ctx) => 
     ctx.body = { error: "Error interno" };
   }
 });
+
+// actualizar estado de purchaseintents
+router.patch("/purchase-intents/:request_id/status", async (ctx) => {
+  try {
+    const { request_id } = ctx.params;
+    const { status } = ctx.request.body;
+
+    if (!request_id || !status) {
+      ctx.status = 400;
+      ctx.body = { error: "request_id y status son requeridos" };
+      return;
+    }
+
+    const intent = await ctx.orm.PurchaseIntent.findOne({ where: { request_id } });
+    if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "PurchaseIntent no encontrado" };
+      return;
+    }
+
+    intent.status = status;
+    await intent.save();
+
+    ctx.status = 200;
+    ctx.body = { message: "Estado actualizado", request_id, status };
+    console.log(`🟢 PurchaseIntent ${request_id} → ${status}`);
+  } catch (err) {
+    console.error("Error actualizando estado:", err.message);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
+  }
+});
+
 
 module.exports = router;

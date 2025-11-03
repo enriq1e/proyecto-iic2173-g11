@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log
+.env
+.git
+.gitignore
+.vscode/
+*.pem
+*.txt
+*.pdf
+yarn.lock
+coverage/
+docker-compose.yml
+Dockerfile
+__tests__/

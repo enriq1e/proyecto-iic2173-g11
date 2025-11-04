@@ -32,14 +32,28 @@ router.post('/recommendations', async (ctx) => {
       ctx.body = { error: 'propertyId must be a valid integer' };
       return;
     }
+    
+    // Si userId es un email, buscar el usuario y obtener su ID numérico
+    let finalUserId = userId;
+    if (typeof userId === 'string' && userId.includes('@')) {
+      const user = await ctx.orm.User.findOne({ where: { email: userId } });
+      if (!user) {
+        ctx.status = 404;
+        ctx.body = { error: `User not found for email: ${userId}` };
+        return;
+      }
+      finalUserId = user.id;
+      console.log(`[internal/recs] Mapped email ${userId} to user ID ${finalUserId}`);
+    }
+    
     const ids = Array.isArray(recommendations)
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)
       : [];
 
     // Upsert por (userId, basePropertyId)
     const [rec, created] = await ctx.orm.Recommendation.findOrCreate({
-      where: { userId, basePropertyId },
-      defaults: { userId, basePropertyId, recommendationIds: ids },
+      where: { userId: finalUserId, basePropertyId },
+      defaults: { userId: finalUserId, basePropertyId, recommendationIds: ids },
     });
     if (!created) {
       rec.recommendationIds = ids;

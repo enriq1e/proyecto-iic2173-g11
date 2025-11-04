@@ -33,18 +33,10 @@ router.post('/recommendations', async (ctx) => {
       return;
     }
     
-    // Si userId es un email, buscar el usuario y obtener su ID numérico
-    let finalUserId = userId;
-    if (typeof userId === 'string' && userId.includes('@')) {
-      const user = await ctx.orm.User.findOne({ where: { email: userId } });
-      if (!user) {
-        ctx.status = 404;
-        ctx.body = { error: `User not found for email: ${userId}` };
-        return;
-      }
-      finalUserId = user.id;
-      console.log(`[internal/recs] Mapped email ${userId} to user ID ${finalUserId}`);
-    }
+    // userId puede ser email (string) o ID numérico - guardamos como string
+    // La columna userId es VARCHAR, así que guardamos tal cual viene del worker
+    const finalUserId = String(userId);
+    console.log(`[internal/recs] Saving recommendation for userId=${finalUserId}, basePropertyId=${basePropertyId}`);
     
     const ids = Array.isArray(recommendations)
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)

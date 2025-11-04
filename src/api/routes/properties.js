@@ -76,8 +76,20 @@ router.get("index", "/", async (ctx) => {
                 let excludeIds = [];
 
                 if (userId) {
+                    // La columna userId en Recommendations es VARCHAR y guarda el email
+                    // Si recibimos un ID numérico, buscamos el usuario y usamos su email
+                    let userIdentifier = userId;
+                    if (!String(userId).includes('@')) {
+                        // Es un ID numérico, buscar el email
+                        const user = await ctx.orm.User.findByPk(userId);
+                        if (user) {
+                            userIdentifier = user.email;
+                            console.log(`[properties] Mapped userId ${userId} to email ${userIdentifier}`);
+                        }
+                    }
+                    
                     const rec = await ctx.orm.Recommendation.findOne({
-                        where: { userId },
+                        where: { userId: userIdentifier },
                         order: [["createdAt", "DESC"]],
                     });
                     if (rec && Array.isArray(rec.recommendationIds) && rec.recommendationIds.length) {

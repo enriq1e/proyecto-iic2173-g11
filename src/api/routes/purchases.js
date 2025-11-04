@@ -128,11 +128,12 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
     
     if (existingIntent) {
       request_id = existingIntent.request_id;
-      console.log(`Reutilizando PurchaseIntent existente request_id=${request_id} para property_id=${property.id}`);
+      console.log(`Reutilizando PurchaseIntent existente request_id=${request_id}`);
     } else {
       request_id = randomUUID();
       isNew = true;
       
+      // Crear PurchaseIntent
       await ctx.orm.PurchaseIntent.create({
         request_id,
         group_id: process.env.GROUP_ID || '11',
@@ -146,7 +147,7 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
         propertieId: property.id,
       });
 
-      // EventLog REQUEST 
+      //EventLog REQUEST
       await ctx.orm.EventLog.create({
         topic: 'properties/requests',
         event_type: 'REQUEST',
@@ -161,12 +162,10 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
           property_id: property.id,
           property_name: property.name,
           property_url: property.url,
-          price: property.price,
-          currency: property.currency,
         }),
       });
       
-      console.log(`🔵 EventLog REQUEST creado para request_id=${request_id}`);
+      console.log(`🔵 Nueva intención creada request_id=${request_id} con EventLog REQUEST`);
     }
     
     ctx.status = 201;

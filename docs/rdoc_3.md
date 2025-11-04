@@ -174,7 +174,6 @@ curl -X POST \
 - Para reproducir `sam build` + `sam deploy` en GitHub Actions.
 - Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`.
 - Paso de `sam deploy --no-confirm-changeset` con parámetros guardados del `--guided`.
-```
 
 ---
 

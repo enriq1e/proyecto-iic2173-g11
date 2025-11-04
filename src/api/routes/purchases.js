@@ -88,7 +88,6 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
       return;
     }
 
-    // Buscar propiedad por id o url
     const property = property_id
       ? await ctx.orm.Propertie.findByPk(property_id)
       : await ctx.orm.Propertie.findOne({ where: { url: property_url } });
@@ -115,7 +114,6 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
 
     const price10 = Number((priceNum * 0.10).toFixed(2));
 
-    // Evitar duplicados: buscar intención PENDING existente
     const existingIntent = await ctx.orm.PurchaseIntent.findOne({
       where: {
         propertieId: property.id,
@@ -126,11 +124,16 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
     });
 
     let request_id;
+    let isNew = false;
+    
     if (existingIntent) {
       request_id = existingIntent.request_id;
-      console.log(`Reutilizando PurchaseIntent existente request_id=${request_id} para property_id=${property.id}`);
+      console.log(`Reutilizando PurchaseIntent existente request_id=${request_id}`);
     } else {
       request_id = randomUUID();
+      isNew = true;
+      
+      // Crear PurchaseIntent
       await ctx.orm.PurchaseIntent.create({
         request_id,
         group_id: process.env.GROUP_ID || '11',
@@ -143,10 +146,40 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
         email,
         propertieId: property.id,
       });
+      
+      console.log(`🔵 Nueva intención creada request_id=${request_id}`);
     }
+    
+    // Crear EventLog REQUEST si no existe 
+    const existingRequestLog = await ctx.orm.EventLog.findOne({
+      where: { request_id, event_type: 'REQUEST' },
+    });
+    
+    if (!existingRequestLog) {
+      await ctx.orm.EventLog.create({
+        topic: 'properties/requests',
+        event_type: 'REQUEST',
+        timestamp: new Date().toISOString(),
+        url: property.url,
+        request_id,
+        group_id: process.env.GROUP_ID || '11',
+        origin: 0,
+        operation: 'BUY',
+        status: 'PENDING',
+        raw: JSON.stringify({
+          property_id: property.id,
+          property_name: property.name,
+          property_url: property.url,
+        }),
+      });
+      console.log(`🔵 EventLog REQUEST creado para request_id=${request_id}`);
+    } else {
+      console.log(`ℹ️ EventLog REQUEST ya existe para request_id=${request_id}`);
+    }
+    
     ctx.status = 201;
     ctx.body = {
-      message: existingIntent ? 'Intención existente reutilizada' : 'Intención creada',
+      message: isNew ? 'Intención creada' : 'Intención existente reutilizada',
       request_id,
       property_url: property.url,
       property_name: property.name,

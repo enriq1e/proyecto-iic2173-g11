@@ -146,8 +146,16 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
         email,
         propertieId: property.id,
       });
-
-      //EventLog REQUEST
+      
+      console.log(`🔵 Nueva intención creada request_id=${request_id}`);
+    }
+    
+    // Crear EventLog REQUEST si no existe 
+    const existingRequestLog = await ctx.orm.EventLog.findOne({
+      where: { request_id, event_type: 'REQUEST' },
+    });
+    
+    if (!existingRequestLog) {
       await ctx.orm.EventLog.create({
         topic: 'properties/requests',
         event_type: 'REQUEST',
@@ -164,8 +172,9 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
           property_url: property.url,
         }),
       });
-      
-      console.log(`🔵 Nueva intención creada request_id=${request_id} con EventLog REQUEST`);
+      console.log(`🔵 EventLog REQUEST creado para request_id=${request_id}`);
+    } else {
+      console.log(`ℹ️ EventLog REQUEST ya existe para request_id=${request_id}`);
     }
     
     ctx.status = 201;

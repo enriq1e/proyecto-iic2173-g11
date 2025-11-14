@@ -9,7 +9,7 @@ const router = new Router();
 
 router.get("/", (ctx) => {
   ctx.status = 200;
-  ctx.body = { status: "Home API Properties 2" };
+  ctx.body = { status: "Home API Properties" };
 });
 
 router.use('/properties', properties.routes());

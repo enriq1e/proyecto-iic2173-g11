@@ -70,15 +70,51 @@ router.get("index", "/", async (ctx) => {
             );
         }
 
-        // aplicamos los filtros y buscamo
-        const properties = await ctx.orm.Propertie.findAll({ 
-            where: filters,
-            limit,
-            offset,
-            order:[["timestamp", "DESC"]]
-        });
+                // Si hay userId y existen recomendaciones, las anteponemos
+                const userId = ctx.query.userId || ctx.query.user_id || null;
+                let recommendedFirst = [];
+                let excludeIds = [];
 
-        ctx.body = properties;
+                if (userId) {
+                    // La columna userId en Recommendations es VARCHAR y guarda el email
+                    // Si recibimos un ID numérico, buscamos el usuario y usamos su email
+                    let userIdentifier = userId;
+                    if (!String(userId).includes('@')) {
+                        // Es un ID numérico, buscar el email
+                        const user = await ctx.orm.User.findByPk(userId);
+                        if (user) {
+                            userIdentifier = user.email;
+                            console.log(`[properties] Mapped userId ${userId} to email ${userIdentifier}`);
+                        }
+                    }
+                    
+                    const rec = await ctx.orm.Recommendation.findOne({
+                        where: { userId: userIdentifier },
+                        order: [["createdAt", "DESC"]],
+                    });
+                    if (rec && Array.isArray(rec.recommendationIds) && rec.recommendationIds.length) {
+                        const recProps = await ctx.orm.Propertie.findAll({
+                            where: { id: rec.recommendationIds },
+                        });
+                        recommendedFirst = recProps.map(p => ({ ...p.toJSON(), recommended: true }));
+                        excludeIds = rec.recommendationIds;
+                    }
+                }
+
+                // aplicamos los filtros y buscamos el resto (excluyendo recomendadas)
+                const whereRest = { ...filters };
+                if (excludeIds.length) {
+                    whereRest.id = { [Op.notIn]: excludeIds };
+                }
+
+                const rest = await ctx.orm.Propertie.findAll({ 
+                        where: whereRest,
+                        limit: Math.max(0, limit - recommendedFirst.length),
+                        offset,
+                        order:[["timestamp", "DESC"]]
+                });
+
+                ctx.body = [...recommendedFirst, ...rest];
         ctx.status = 200;
 
     } catch (error) {

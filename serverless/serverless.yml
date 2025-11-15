@@ -1,0 +1,35 @@
+service: generar-boleta
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-2
+  environment:
+    S3_BUCKET_NAME: grupo11-boletas
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - s3:PutObject
+        - s3:PutObjectAcl
+      Resource: arn:aws:s3:::grupo11-boletas/*
+
+functions:
+  generarBoleta:
+    handler: handler.generarBoleta
+    events:
+      - http:
+          path: generar-boleta
+          method: post
+
+package:
+  individually: true
+  patterns:
+    - handler.js
+    - node_modules/pdfkit/**
+    - node_modules/@aws-sdk/**
+    - node_modules/crypto-js/**
+  exclude:
+    - .git/**
+    - .serverless/**
+    - node_modules/aws-sdk/**
+    - node_modules/.bin/**

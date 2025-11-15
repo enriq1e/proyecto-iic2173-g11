@@ -3,6 +3,10 @@ const axios = require("axios");
 const dotenv = require("dotenv");
 const { randomUUID } = require("crypto");
 const { withFibRetry } = require("../api/utils/retry");
+const processedRequests = new Set(); 
+const orm = require("../models");
+const { notifyPayment } = require("../api/utils/notifyPayment");
+
 
 dotenv.config();
 
@@ -33,6 +37,7 @@ function publishAsync(topic, payload) {
 
 // Loguear evento a API
 async function logEventToApi(payload) {
+  console.log("🟢 Registrando EventLog:", payload.event_type, payload.url);
   try {
     await withFibRetry(
       () => axios.post(`${process.env.API_URL}/event-logs`, payload),
@@ -108,10 +113,11 @@ client.on("connect", async () => {
 });
 
 // Publicar solicitud de compra 
-function sendPurchaseRequest(propertyUrl, requestId) {
+function sendPurchaseRequest(propertyUrl, requestId, deposit_token) {
   const purchaseRequest = {
     request_id: requestId || randomUUID(),
-    group_id: Number(process.env.GROUP_ID),
+    deposit_token: deposit_token,
+    group_id: String(process.env.GROUP_ID),
     timestamp: new Date().toISOString(),
     url: propertyUrl,
     origin: 0,
@@ -132,10 +138,33 @@ function sendPurchaseRequest(propertyUrl, requestId) {
     });
 }
 
+function sendValidationResult(status, requestId, reason = null) {
+  const validationMessage = {
+    request_id: requestId,
+    status,
+    reason,
+    timestamp: new Date().toISOString()};
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_VALIDATION, JSON.stringify(validationMessage)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  ).then(() => {
+    console.log("Validación enviada:", requestId, status);
+  }
+  ).catch((err) => {
+    console.error("Error publicando validación:", err.message);
+    throw err;});
+}
+
 if (isBroker) {
   client.on("message", async (topic, message) => {
     try {
       const data = JSON.parse(message.toString());
+      // Idempotencia por request_id y topic
+      const key = `${topic}:${data.request_id}`;
+      if (data.request_id && processedRequests.has(key)) {
+        return;
+      }
+      if (data.request_id) processedRequests.add(key);
 
       if (topic === process.env.TOPIC) {
         // Mensaje de properties/info - nueva propiedad
@@ -153,6 +182,12 @@ if (isBroker) {
         });
 
       } else if (topic === process.env.TOPIC_REQUEST) {
+        const key = `${topic}:${data.request_id}`;
+        if (data.request_id && processedRequests.has(key)) {
+          console.log(`[MQTT] Ignorando REQUEST duplicada: ${data.request_id}`);
+          return;
+        }
+        if (data.request_id) processedRequests.add(key);
         // Canal compartido - procesar TODAS las solicitudes
         await logEventToApi({
           topic,
@@ -166,6 +201,12 @@ if (isBroker) {
           raw: data,
         });
 
+        // Procesar solo si pertenece a mi grupo
+        if (data.group_id !== String(process.env.GROUP_ID)) {
+          console.log(`[MQTT] Ignorando procesamiento de otro grupo (${data.group_id})`);
+          return;
+        }
+
         // reserva idempotente local mientras valida
         try {
           await withFibRetry(
@@ -174,7 +215,14 @@ if (isBroker) {
                 request_id: data.request_id,
                 url: data.url,
               }),
-            { maxRetries: 5, baseDelayMs: 1000 }
+            {
+              maxRetries: 3,
+              baseDelayMs: 1000,
+              shouldRetry: (err) => {
+                const code = err?.response?.status;
+                return !code || code >= 500;
+              },
+            }
           );
         } catch (e) {
           console.error(
@@ -183,42 +231,96 @@ if (isBroker) {
           );
         }
 
+      // Manejo de mensajes de validación
       } else if (topic === process.env.TOPIC_VALIDATION) {
         const status = String(data.status || "").toUpperCase();
+        const requestId = data.request_id;
+        let propertyUrl = null;
 
+        console.log(`🟢 VALIDATION recibida: ${requestId} (${status})`);
+
+        // Buscar request_id 
+        try {
+          const res = await axios.get(`${process.env.API_URL}/event-logs/by-request/${requestId}`);
+          propertyUrl = res.data?.url || null;
+        } catch {
+          console.warn(`[MQTT] No se encontró EventLog previo para request_id ${requestId}`);
+        }
+        // Eventlog validation
         await logEventToApi({
           topic,
           event_type: "VALIDATION",
           timestamp: data.timestamp,
-          url: data.url || null,
-          request_id: data.request_id,
+          url: propertyUrl,
+          request_id: requestId,
           status,
           reason: data.reason || null,
           raw: data,
         });
 
+        // actualizar estado purchaseintent segun compra
+        try {
+          const normalizedStatus = (() => {
+            switch (String(data.status || "").toUpperCase()) {
+              case "ACCEPTED":
+                return "ACCEPTED";
+              case "OK":
+                return "PENDING";
+              case "ERROR":
+                return "ERROR";
+              case "REJECTED":
+                return "REJECTED";
+              default:
+                return "UNKNOWN";
+            }
+          })();
+
+          await withFibRetry(
+            () => axios.patch(
+              `${process.env.API_URL}/purchases/purchase-intents/${requestId}/status`, 
+              { status: normalizedStatus }
+            ),
+            { maxRetries: 5, baseDelayMs: 1000 }
+          );
+
+          console.log(`🟢 PurchaseIntent ${requestId} actualizado a ${normalizedStatus}`);
+        } catch (err) {
+          console.error("Error actualizando estado de PurchaseIntent:", err.response?.data || err.message);
+        }
+
+        try {
+          await notifyPayment(orm, requestId, status, data.reason || null);
+          console.log(`🟢 Email de pago notificado para ${requestId} (${status})`);
+        } catch (mailErr) {
+          console.error("Error notificando email de pago:", mailErr.message);
+        }
+
+        if (status === "ACCEPTED") {
+          try {
+            await withFibRetry(
+                () => axios.post(`${process.env.API_URL}/purchases/reduce-offers`, {
+                property_url: propertyUrl,
+                operation: "REDUCE"
+              }),
+            );
+            console.log(`[MQTT] Oferta reducida para ${propertyUrl}`);
+          } catch (err) {
+            console.error("Error al reducir oferta:", err.response?.data || err.message);
+          }
+        }
+
         try {
           await withFibRetry(
             () =>
               axios.post(`${process.env.API_URL}/purchases/settle-from-validation`, {
-                request_id: data.request_id,
+                request_id: requestId,
                 status,
               }),
-            {
-              maxRetries: 5,
-              baseDelayMs: 1000,
-              shouldRetry: (err) => {
-                const code = err?.response?.status;
-                return !code || code >= 500;
-              },
-            }
+            { maxRetries: 5, baseDelayMs: 1000 }
           );
-          console.log(`VALIDATION aplicada (${status})`);
+          console.log(`✅ VALIDATION enviada (${status})`);
         } catch (err) {
-          console.error(
-            "Error aplicando VALIDATION:",
-            err.response?.data || err.message
-          );
+          console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
         }
       }
     } catch (error) {
@@ -229,4 +331,4 @@ if (isBroker) {
 
 client.on("error", (error) => console.error("MQTT error:", error.message));
 
-module.exports = { sendPurchaseRequest };
+module.exports = { sendPurchaseRequest, sendValidationResult };

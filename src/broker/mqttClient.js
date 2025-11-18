@@ -2,10 +2,12 @@ const mqtt = require("mqtt");
 const axios = require("axios");
 const dotenv = require("dotenv");
 const { randomUUID } = require("crypto");
-const { withFibRetry } = require("../api/utils/retry");
-const processedRequests = new Set(); 
 const orm = require("../models");
+
+const { withFibRetry } = require("../api/utils/retry");
 const { notifyPayment } = require("../api/utils/notifyPayment");
+
+const processedRequests = new Set(); 
 
 
 dotenv.config();
@@ -28,21 +30,16 @@ const client = mqtt.connect({
   clientId: "mqttjs_g11_" + Math.random().toString(16).slice(2, 8),
 });
 
-// Publicar con promesas
-function publishAsync(topic, payload) {
-  return new Promise((resolve, reject) => {
-    client.publish(topic, payload, (err) => (err ? reject(err) : resolve()));
-  });
-}
 
 // Loguear evento a API
 async function logEventToApi(payload) {
-  console.log("🟢 Registrando EventLog:", payload.event_type, payload.url);
+  console.log("Registrando EventLog:", payload.event_type, payload.url);
   try {
     await withFibRetry(
       () => axios.post(`${process.env.API_URL}/event-logs`, payload),
       { maxRetries: 6, baseDelayMs: 1000 }
     );
+    console.log("Post del EventLog Correcto")
   } catch (err) {
     console.error("Error POST /event-logs:", err.response?.data || err.message);
   }
@@ -55,7 +52,7 @@ client.on("connect", async () => {
     return; // en modo API no nos suscribimos
   }
 
-  console.log("Broker conectado");
+  console.log("Conectado al Broker Correctamente");
 
   // properties/info
   try {
@@ -68,9 +65,9 @@ client.on("connect", async () => {
         }),
       { maxRetries: 5, baseDelayMs: 1000 }
     );
-    console.log(`Suscrito: ${process.env.TOPIC}`);
+    console.log(`Suscrito a: ${process.env.TOPIC}`);
   } catch (err) {
-    console.error(`Suscripción fallida (${process.env.TOPIC}):`, err.message);
+    console.error(`Suscripción fallida a (${process.env.TOPIC}):`, err.message);
   }
 
   // properties/requests
@@ -84,10 +81,10 @@ client.on("connect", async () => {
         }),
       { maxRetries: 5, baseDelayMs: 1000 }
     );
-    console.log(`Suscrito: ${process.env.TOPIC_REQUEST}`);
+    console.log(`Suscrito a ${process.env.TOPIC_REQUEST}`);
   } catch (err) {
     console.error(
-      `Suscripción fallida (${process.env.TOPIC_REQUEST}):`,
+      `Suscripción fallida a (${process.env.TOPIC_REQUEST}):`,
       err.message
     );
   }
@@ -103,57 +100,18 @@ client.on("connect", async () => {
         }),
       { maxRetries: 5, baseDelayMs: 1000 }
     );
-    console.log(`Suscrito: ${process.env.TOPIC_VALIDATION}`);
+    console.log(`Suscrito a ${process.env.TOPIC_VALIDATION}`);
   } catch (err) {
     console.error(
-      `Suscripción fallida (${process.env.TOPIC_VALIDATION}):`,
+      `Suscripción fallida a (${process.env.TOPIC_VALIDATION}):`,
       err.message
     );
   }
 });
 
-// Publicar solicitud de compra 
-function sendPurchaseRequest(propertyUrl, requestId, deposit_token) {
-  const purchaseRequest = {
-    request_id: requestId || randomUUID(),
-    deposit_token: deposit_token,
-    group_id: String(process.env.GROUP_ID),
-    timestamp: new Date().toISOString(),
-    url: propertyUrl,
-    origin: 0,
-    operation: "BUY",
-  };
 
-  return withFibRetry(
-    () => publishAsync(process.env.TOPIC_REQUEST, JSON.stringify(purchaseRequest)),
-    { maxRetries: 6, baseDelayMs: 1000 }
-  )
-    .then(() => {
-      console.log("Solicitud enviada:", purchaseRequest.request_id);
-      return purchaseRequest.request_id;
-    })
-    .catch((err) => {
-      console.error("Error publicando solicitud:", err.message);
-      throw err;
-    });
-}
 
-function sendValidationResult(status, requestId, reason = null) {
-  const validationMessage = {
-    request_id: requestId,
-    status,
-    reason,
-    timestamp: new Date().toISOString()};
-  return withFibRetry(
-    () => publishAsync(process.env.TOPIC_VALIDATION, JSON.stringify(validationMessage)),
-    { maxRetries: 6, baseDelayMs: 1000 }
-  ).then(() => {
-    console.log("Validación enviada:", requestId, status);
-  }
-  ).catch((err) => {
-    console.error("Error publicando validación:", err.message);
-    throw err;});
-}
+
 
 if (isBroker) {
   client.on("message", async (topic, message) => {
@@ -327,6 +285,60 @@ if (isBroker) {
       console.error("Error procesando mensaje:", error.message);
     }
   });
+}
+
+
+
+
+
+// FUNCIONES PARA COMPRA
+// Publicar con promesas
+function publishAsync(topic, payload) {
+  return new Promise((resolve, reject) => {
+    client.publish(topic, payload, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+function sendPurchaseRequest(propertyUrl, requestId, deposit_token) {
+  const purchaseRequest = {
+    request_id: requestId || randomUUID(),
+    deposit_token: deposit_token,
+    group_id: String(process.env.GROUP_ID),
+    timestamp: new Date().toISOString(),
+    url: propertyUrl,
+    origin: 0,
+    operation: "BUY",
+  };
+
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_REQUEST, JSON.stringify(purchaseRequest)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  )
+    .then(() => {
+      console.log("Solicitud enviada:", purchaseRequest.request_id);
+      return purchaseRequest.request_id;
+    })
+    .catch((err) => {
+      console.error("Error publicando solicitud:", err.message);
+      throw err;
+    });
+}
+
+function sendValidationResult(status, requestId, reason = null) {
+  const validationMessage = {
+    request_id: requestId,
+    status,
+    reason,
+    timestamp: new Date().toISOString()};
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_VALIDATION, JSON.stringify(validationMessage)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  ).then(() => {
+    console.log("Validación enviada:", requestId, status);
+  }
+  ).catch((err) => {
+    console.error("Error publicando validación:", err.message);
+    throw err;});
 }
 
 client.on("error", (error) => console.error("MQTT error:", error.message));

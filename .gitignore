@@ -12,3 +12,4 @@ image.png
 recommender.md
 docs/workers-escalado.md
 coverage/
+*.log

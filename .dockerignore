@@ -12,3 +12,14 @@ coverage/
 docker-compose.yml
 Dockerfile
 __tests__/
+
+services/recommender-master/.env
+services/recommender-worker/.env
+node_modules/
+Enunciado_E2.md
+instructions.md
+image.png
+recommender.md
+docs/
+coverage/
+*.log

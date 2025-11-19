@@ -10,9 +10,10 @@ const app = new Koa();
 app.context.orm = orm;
 
 // Middlewares
-app.use(cors({ 
+app.use(cors({
   origin: "*",
   allowHeaders: ['Content-Type', 'Authorization', 'authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   exposeHeaders: ['Authorization'],
   credentials: true
 }));

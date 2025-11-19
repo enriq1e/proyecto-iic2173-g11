@@ -40,7 +40,7 @@ router.post('/recommendations', async (ctx) => {
     
     const ids = Array.isArray(recommendations)
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)
-      : [];
+      : (Array.isArray(ctx.request.body?.recommendationIds) ? ctx.request.body.recommendationIds : []);
 
     // Upsert por (userId, basePropertyId)
     const [rec, created] = await ctx.orm.Recommendation.findOrCreate({
@@ -48,8 +48,8 @@ router.post('/recommendations', async (ctx) => {
       defaults: { userId: finalUserId, basePropertyId, recommendationIds: ids },
     });
     if (!created) {
-      rec.recommendationIds = ids;
-      await rec.save();
+      // Asegurarse de actualizar los recommendationIds y persistir
+      await rec.update({ recommendationIds: ids, updatedAt: new Date() });
     }
 
     ctx.status = 200;

@@ -4,6 +4,7 @@ const { koaBody } = require("koa-body");
 const cors = require("@koa/cors");
 const router = require("./routes.js");
 const orm = require("../models");
+const recommendationsRouter = require('./routes/recommendations');
 
 const app = new Koa();
 app.context.orm = orm;
@@ -21,5 +22,7 @@ app.use(koaBody());
 // Rutas
 app.use(router.routes());
 app.use(router.allowedMethods());
+app.use(recommendationsRouter.routes());
+app.use(recommendationsRouter.allowedMethods());
 
 module.exports = app;

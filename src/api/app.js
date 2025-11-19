@@ -9,7 +9,12 @@ const app = new Koa();
 app.context.orm = orm;
 
 // Middlewares
-app.use(cors({ origin: "*" }));
+app.use(cors({ 
+  origin: "*",
+  allowHeaders: ['Content-Type', 'Authorization', 'authorization'],
+  exposeHeaders: ['Authorization'],
+  credentials: true
+}));
 app.use(KoaLogger());
 app.use(koaBody());
 

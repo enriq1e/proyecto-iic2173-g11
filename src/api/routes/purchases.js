@@ -193,7 +193,8 @@ router.post("create.intent.purchase", "/create-intent", authenticate, async (ctx
   }
 });
 
-router.post('/commit', authenticate, async (ctx) => {
+// Endpoint público: la seguridad viene de Transbank (token_ws de un solo uso)
+router.post("create.intent.commit","/commit", async (ctx) => {
   try {
     const { token_ws, property_id } = ctx.request.body;
 
@@ -268,6 +269,7 @@ router.post('/commit', authenticate, async (ctx) => {
           currency: property.currency,
         }),
       });
+      property.state = "PURCHASED";
       console.log(`🔵 EventLog REQUEST creado para ${request_id}`);
     } catch (err) {
       console.error("Error creando EventLog REQUEST:", err.message);
@@ -278,11 +280,12 @@ router.post('/commit', authenticate, async (ctx) => {
       if (!LAMBDA_URL) {
         console.error("❌ LAMBDA_URL no está definido en el .env");
       } else {
+        // Obtener email del PurchaseIntent (creado previamente en /transaction o /create-intent)
         const lambdaBody = {
           groupName: "Grupo 11",
           user: {
-            name: ctx.state.user?.name || "Usuario",
-            email: ctx.state.user?.email || ctx.state.user?.mail || "sin-email@uc.cl",
+            name: intent.email?.split('@')[0] || "Usuario",
+            email: intent.email || "sin-email@uc.cl",
           },
           purchase: {
             id: intent.id,

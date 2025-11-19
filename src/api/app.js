@@ -22,7 +22,5 @@ app.use(koaBody());
 // Rutas
 app.use(router.routes());
 app.use(router.allowedMethods());
-app.use(recommendationsRouter.routes());
-app.use(recommendationsRouter.allowedMethods());
 
 module.exports = app;

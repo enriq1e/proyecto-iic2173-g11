@@ -12,6 +12,7 @@ try {
 }
 const app = require("./app");
 const db = require("../models");
+const recommendationsRouter = require('./routes/recommendations');
 
 const PORT = process.env.PORT || 3001;
 
@@ -28,3 +29,5 @@ db.sequelize
         });
     })
     .catch((err) => console.error("Incapaz de conectarse a la base de datos:", err));
+
+api.use('/recommendations', recommendationsRouter.routes());

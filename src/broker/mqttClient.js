@@ -165,29 +165,9 @@ if (isBroker) {
           return;
         }
 
-        // reserva idempotente local mientras valida
-        try {
-          await withFibRetry(
-            () =>
-              axios.post(`${process.env.API_URL}/purchases/reserve-from-request`, {
-                request_id: data.request_id,
-                url: data.url,
-              }),
-            {
-              maxRetries: 3,
-              baseDelayMs: 1000,
-              shouldRetry: (err) => {
-                const code = err?.response?.status;
-                return !code || code >= 500;
-              },
-            }
-          );
-        } catch (e) {
-          console.error(
-            "No se pudo reservar desde REQUEST:",
-            e.response?.data || e.message
-          );
-        }
+        // Solo registramos el REQUEST, NO reducimos offers aquí
+        console.log(`[MQTT] REQUEST registrado: ${data.request_id} (esperando validación)`);
+        // La reducción de offers se hará cuando llegue VALIDATION ACCEPTED
 
       // Manejo de mensajes de validación
       } else if (topic === process.env.TOPIC_VALIDATION) {
@@ -253,17 +233,27 @@ if (isBroker) {
           console.error("Error notificando email de pago:", mailErr.message);
         }
 
+        // Reducir offers SOLO cuando la validación es ACCEPTED
         if (status === "ACCEPTED") {
           try {
             await withFibRetry(
-                () => axios.post(`${process.env.API_URL}/purchases/reduce-offers`, {
-                property_url: propertyUrl,
-                operation: "REDUCE"
-              }),
+              () =>
+                axios.post(`${process.env.API_URL}/purchases/reserve-from-request`, {
+                  request_id: requestId,
+                  url: propertyUrl,
+                }),
+              {
+                maxRetries: 5,
+                baseDelayMs: 1000,
+                shouldRetry: (err) => {
+                  const code = err?.response?.status;
+                  return !code || code >= 500;
+                },
+              }
             );
-            console.log(`[MQTT] Oferta reducida para ${propertyUrl}`);
+            console.log(`✅ [MQTT] Oferta reducida para ${propertyUrl} tras VALIDATION ACCEPTED`);
           } catch (err) {
-            console.error("Error al reducir oferta:", err.response?.data || err.message);
+            console.error("Error reduciendo oferta tras validación:", err.response?.data || err.message);
           }
         }
 
@@ -276,7 +266,7 @@ if (isBroker) {
               }),
             { maxRetries: 5, baseDelayMs: 1000 }
           );
-          console.log(`✅ VALIDATION enviada (${status})`);
+          console.log(`✅ VALIDATION procesada (${status})`);
         } catch (err) {
           console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
         }
@@ -331,7 +321,7 @@ function sendValidationResult(status, requestId, reason = null) {
     reason,
     timestamp: new Date().toISOString()};
   return withFibRetry(
-    () => publishAsync(process.env.TOPIC_VALIDATION, JSON.stringify(validationMessage)),
+    () => publishAsync(process.env.TOPIC_VALIDATION || "properties/validation", JSON.stringify(validationMessage)),
     { maxRetries: 6, baseDelayMs: 1000 }
   ).then(() => {
     console.log("Validación enviada:", requestId, status);

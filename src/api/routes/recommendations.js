@@ -27,8 +27,8 @@ router.get('/', async (ctx) => {
       return;
     }
 
-    // Extraer userId del token (puede ser sub, id, email, mail)
-    const userId = decoded.sub || decoded.id || decoded.email || decoded.mail;
+    // Extraer userId del token (priorizar email si existe, porque la BD guarda emails)
+    const userId = decoded.email || decoded.mail || decoded.sub || decoded.id;
     console.log('[recommendations] resolved userId:', userId);
     if (!userId) {
       ctx.status = 400;

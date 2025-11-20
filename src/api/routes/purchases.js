@@ -276,6 +276,40 @@ router.post("create.intent.commit","/commit", async (ctx) => {
     }
 
     sendValidationResult('ACCEPTED', request_id);
+
+    // Actualizar estado del PurchaseIntent a ACCEPTED
+    if (intent) {
+      intent.status = 'ACCEPTED';
+      await intent.save();
+      console.log(`✅ PurchaseIntent ${request_id} actualizado a ACCEPTED`);
+    }
+
+    // Encolar job de recomendación (idempotente)
+    try {
+      const alreadyQueued = await ctx.orm.EventLog.findOne({
+        where: { request_id, event_type: 'RECO_JOB_ENQUEUED' },
+      });
+      if (!alreadyQueued && intent) {
+        const job = await enqueueRecommendationJob({
+          userId: intent.email,
+          propertyId: String(intent.propertieId),
+          source: 'purchase-commit',
+        });
+        await ctx.orm.EventLog.create({
+          topic: 'jobs/recommendations',
+          event_type: 'RECO_JOB_ENQUEUED',
+          timestamp: new Date().toISOString(),
+          url: property.url,
+          request_id,
+          status: 'ACCEPTED',
+          raw: { jobId: job?.jobId },
+        });
+        console.log(`✅ Job de recomendación encolado: userId=${intent.email}, propertyId=${intent.propertieId}`);
+      }
+    } catch (e) {
+      console.error('❌ Error encolando recomendación:', e?.message || e);
+    }
+
     try {
       if (!LAMBDA_URL) {
         console.error("❌ LAMBDA_URL no está definido en el .env");

@@ -15,9 +15,6 @@ const db = require("../models");
 
 const PORT = process.env.PORT || 3001;
 
-const recommendationsRouter = require('./routes/recommendations'); 
-app.use('/recommendations', recommendationsRouter.routes());
-
 db.sequelize
     .authenticate()
     .then(() => {

@@ -4,7 +4,7 @@ const purchases = require("./routes/purchases.js");
 const eventLogs = require("./routes/eventLogs.js");
 const wallet = require("./routes/wallet.js");
 const internal = require("./routes/internal.js");
-const recommendationsRouter = require('./routes/recommendations');
+const recommendations = require("./routes/recommendations.js");
 
 const router = new Router();
 
@@ -18,6 +18,6 @@ router.use('/wallet', wallet.routes());
 router.use('/purchases', purchases.routes());   
 router.use('/event-logs', eventLogs.routes());
 router.use('/internal', internal.routes());
-router.use('/recommendations', recommendationsRouter.routes(), recommendationsRouter.allowedMethods());
+router.use("/recommendations", recommendations.routes(), recommendations.allowedMethods());
 
 module.exports = router;

@@ -11,17 +11,27 @@ app.context.orm = orm;
 
 // Middlewares
 app.use(cors({
-  origin: "*",
-  allowHeaders: ['Content-Type', 'Authorization', 'authorization'],
+  origin: (ctx) => ctx.get('Origin') || '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  exposeHeaders: ['Authorization'],
-  credentials: true
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposeHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400,
 }));
+
+// responder OPTIONS (evita 404)
+app.use(async (ctx, next) => {
+  if (ctx.method === 'OPTIONS') {
+    ctx.status = 204;
+    return;
+  }
+  await next();
+});
+
 app.use(KoaLogger());
 app.use(koaBody());
 
 // Rutas
-app.use(router.routes());
-app.use(router.allowedMethods());
+app.use(router.routes()).use(router.allowedMethods());
 
 module.exports = app;

@@ -1,67 +1,43 @@
 const Router = require('@koa/router');
-const jwt = require('jsonwebtoken');
 
 const router = new Router();
 
-// GET /recommendations - extrae userId del token JWT
+// GET /recommendations?userId=<email>
+// Retorna las recomendaciones más recientes para un usuario
 router.get('/', async (ctx) => {
   try {
-    // Extraer token del header Authorization
-    const authHeader = ctx.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      ctx.status = 401;
-      ctx.body = { error: 'Missing or invalid Authorization header' };
-      return;
-    }
+    const { userId, user_id } = ctx.query;
+    const userIdentifier = userId || user_id;
 
-    const token = authHeader.split(' ')[1];
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
-    
-    let decoded;
-    try {
-      decoded = jwt.verify(token, secret);
-      console.log('[recommendations] decoded token payload:', decoded);
-    } catch (err) {
-      ctx.status = 401;
-      ctx.body = { error: 'Invalid or expired token' };
-      return;
-    }
-
-    // Extraer userId del token (priorizar email si existe, porque la BD guarda emails)
-    const userId = decoded.email || decoded.mail || decoded.sub || decoded.id;
-    console.log('[recommendations] resolved userId:', userId);
-    if (!userId) {
+    if (!userIdentifier) {
       ctx.status = 400;
-      ctx.body = { error: 'Token does not contain userId' };
+      ctx.body = { error: 'userId o user_id es requerido' };
       return;
     }
 
-    const recs = await ctx.orm.Recommendation.findAll({
-      where: { userId: String(userId) },
+    // Buscar la recomendación más reciente para este usuario
+    const recommendation = await ctx.orm.Recommendation.findOne({
+      where: { userId: String(userIdentifier) },
       order: [['createdAt', 'DESC']],
     });
 
-    // Normalizar recommendationIds -> array antes de enviar
-    const normalized = recs.map(r => {
-      const plain = r.get ? r.get({ plain: true }) : r;
-      let ids = plain.recommendationIds;
-      if (!Array.isArray(ids)) {
-        try {
-          ids = ids ? JSON.parse(ids) : [];
-        } catch (e) {
-          ids = [];
-        }
-      }
-      plain.recommendationIds = Array.isArray(ids) ? ids : [];
-      return plain;
+    if (!recommendation || !Array.isArray(recommendation.recommendationIds)) {
+      ctx.status = 200;
+      ctx.body = [];
+      return;
+    }
+
+    // Obtener las propiedades recomendadas
+    const properties = await ctx.orm.Propertie.findAll({
+      where: { id: recommendation.recommendationIds },
     });
 
-    console.log('[recommendations] returned count:', normalized.length, 'samples:', normalized.slice(0,3));
-    ctx.body = normalized;
-  } catch (err) {
-    console.error('GET /recommendations error:', err);
+    ctx.status = 200;
+    ctx.body = properties;
+  } catch (error) {
+    console.error('Error obteniendo recomendaciones:', error);
     ctx.status = 500;
-    ctx.body = { error: 'Internal error' };
+    ctx.body = { error: 'Error interno del servidor' };
   }
 });
 

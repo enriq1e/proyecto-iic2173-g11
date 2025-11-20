@@ -18,6 +18,6 @@ router.use('/wallet', wallet.routes());
 router.use('/purchases', purchases.routes());   
 router.use('/event-logs', eventLogs.routes());
 router.use('/internal', internal.routes());
-router.use("/recommendations", recommendations.routes(), recommendations.allowedMethods());
+router.use('/recommendations', recommendations.routes());
 
 module.exports = router;

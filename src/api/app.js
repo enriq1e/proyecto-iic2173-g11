@@ -10,13 +10,21 @@ app.context.orm = orm;
 
 // Middlewares
 app.use(cors({
-  origin: (ctx) => ctx.get('Origin') || '*',
+  origin: (ctx) => ctx.get('Origin') || 'https://app.propiedadesarquisis.me',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposeHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
   maxAge: 86400,
 }));
+
+// Parche: asegurar que siempre salga el header
+app.use(async (ctx, next) => {
+  await next();
+  const origin = ctx.get('Origin') || 'https://app.propiedadesarquisis.me';
+  ctx.set('Access-Control-Allow-Origin', origin);
+  ctx.set('Access-Control-Allow-Credentials', 'true');
+});
 
 // Responder OPTIONS para evitar 404 en preflight
 app.use(async (ctx, next) => {

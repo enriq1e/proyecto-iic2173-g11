@@ -1,14 +1,12 @@
 const jwt = require("jsonwebtoken");
 
 const authenticate = async (ctx, next) => {
-
-  const authHeader = ctx.headers.authorization || ctx.headers.Authorization;
+  const authHeader = ctx.headers.authorization;
   if (!authHeader) {
     ctx.status = 401;
     ctx.body = { error: "Token requerido" };
     return;
   }
-  
 
   const token = authHeader.split(" ")[1];
   try {
@@ -16,7 +14,7 @@ const authenticate = async (ctx, next) => {
       issuer: "myapp",
       audience: "myapp",
     });
-    ctx.state.user = payload;
+    ctx.state.user = payload;      
     await next();
   } catch (err) {
     ctx.status = 403;

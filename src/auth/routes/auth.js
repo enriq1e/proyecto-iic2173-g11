@@ -20,16 +20,24 @@ router.post("/signup", async (ctx) => {
       username,
       email,
       password: hashedPassword,
+      role: "user",
     });
 
     const token = jwt.sign(
-      { id: user.id, email: user.email },
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
       process.env.JWT_SECRET,
       { expiresIn: "1h", audience: "myapp", issuer: "myapp" }
     );
 
     ctx.status = 200;
-    ctx.body = { access_token: token };
+    ctx.body = {
+      access_token: token,
+      role: user.role,
+    };
   } catch (err) {
     ctx.status = 500;
     ctx.body = { error: "Error al registrar usuario", details: err.message };
@@ -54,13 +62,20 @@ router.post("/login", async (ctx) => {
   }
 
   const token = jwt.sign(
-    { id: user.id, email: user.email },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
     process.env.JWT_SECRET,
     { expiresIn: "1h", audience: "myapp", issuer: "myapp" }
   );
 
   ctx.status = 200;
-  ctx.body = { access_token: token };
+  ctx.body = {
+    access_token: token,
+    role: user.role,
+  };
 });
 
 module.exports = router;

@@ -6,7 +6,7 @@ const wallet = require("./routes/wallet.js");
 const internal = require("./routes/internal.js");
 const recommendations = require("./routes/recommendations.js");
 
-const router = new Router({ prefix: '/api' });
+const router = new Router();
 
 router.get("/", (ctx) => {
   ctx.status = 200;

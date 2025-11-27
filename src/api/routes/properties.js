@@ -51,11 +51,11 @@ router.get("index", "/", async (ctx) => {
 
             filters[Op.or] = [
                 {
-                currency: "$",
-                price: { [Op.lt]: maxPrice },
+                    currency: "$",
+                    price: { [Op.lt]: maxPrice },
                 },
                 Sequelize.where(
-                Sequelize.literal(`"Propertie"."currency" = 'UF' AND CAST("Propertie"."price" AS FLOAT) * ${UF_value}`),
+                    Sequelize.literal(`"Propertie"."currency" = 'UF' AND CAST("Propertie"."price" AS FLOAT) * ${UF_value}`),
                 { [Op.lt]: maxPrice }
                 ),
             ];
@@ -70,84 +70,54 @@ router.get("index", "/", async (ctx) => {
             );
         }
 
-                // Si hay userId y existen recomendaciones, las anteponemos
-                const userId = ctx.query.userId || ctx.query.user_id || null;
-                let recommendedFirst = [];
-                let excludeIds = [];
+        const userId = ctx.query.userId || ctx.query.user_id || null;
+        let recommendedFirst = [];
+        let excludeIds = [];
 
-                if (userId) {
-                    // La columna userId en Recommendations es VARCHAR y guarda el email
-                    // Si recibimos un ID numérico, buscamos el usuario y usamos su email
-                    let userIdentifier = userId;
-                    if (!String(userId).includes('@')) {
-                        // Es un ID numérico, buscar el email
-                        const user = await ctx.orm.User.findByPk(userId);
-                        if (user) {
-                            userIdentifier = user.email;
-                            console.log(`[properties] Mapped userId ${userId} to email ${userIdentifier}`);
-                        }
-                    }
-                    
-                    const rec = await ctx.orm.Recommendation.findOne({
-                        where: { userId: userIdentifier },
-                        order: [["createdAt", "DESC"]],
-                    });
+        if (userId) {
+            const rec = await ctx.orm.Recommendation.findOne({
+                where: { userId },
+                order: [["createdAt", "DESC"]],
+            });
 
-                    console.log('[properties] Recommendation row for', userIdentifier, rec?.toJSON?.());
+            let recIds = rec?.recommendationIds;
 
-                    //if (rec && Array.isArray(rec.recommendationIds) && rec.recommendationIds.length) {
-                    //    const recProps = await ctx.orm.Propertie.findAll({
-                    //        where: { id: rec.recommendationIds },
-                    //    });
-                    //    recommendedFirst = recProps.map(p => ({ ...p.toJSON(), recommended: true }));
-                    //    excludeIds = rec.recommendationIds;
-                    //}
-
-                    let recIds = rec?.recommendationIds;
-
-                    // Si viene como string JSON, parsearlo
-                    if (typeof recIds === 'string') {
-                        try {
-                        recIds = JSON.parse(recIds);
-                        } catch (e) {
-                        console.warn('[properties] recommendationIds no se pudo parsear como JSON:', recIds);
-                        recIds = [];
-                        }
-                    }
-
-                    if (Array.isArray(recIds) && recIds.length) {
-                        const recProps = await ctx.orm.Propertie.findAll({
-                        where: { id: recIds },
-                        });
-
-                        recommendedFirst = recProps.map((p) => ({
-                        ...p.toJSON(),
-                        recommended: true,   // flag para el frontend
-                        }));
-
-                        excludeIds = recIds;
-                        console.log('[properties] Loaded recommended properties ids:', recIds);
-                    } else {
-                        console.log('[properties] Sin recommendationIds válidos para', userIdentifier);
-                    }
+            if (typeof recIds === "string") {
+                try {
+                    recIds = JSON.parse(recIds);
+                } catch {
+                    recIds = [];
                 }
+            }
 
-                // aplicamos los filtros y buscamos el resto (excluyendo recomendadas)
-                const whereRest = { ...filters };
-                if (excludeIds.length) {
-                    whereRest.id = { [Op.notIn]: excludeIds };
-                }
+        if (Array.isArray(recIds) && recIds.length) {
+            const recProps = await ctx.orm.Propertie.findAll({
+                where: { id: recIds },
+            });
 
-                const rest = await ctx.orm.Propertie.findAll({ 
-                        where: whereRest,
-                        limit: Math.max(0, limit - recommendedFirst.length),
-                        offset,
-                        order:[["timestamp", "DESC"]]
-                });
+            recommendedFirst = recProps.map((p) => ({
+                ...p.toJSON(),
+                recommended: true,
+            }));
 
-                ctx.body = [...recommendedFirst, ...rest];
+            excludeIds = recIds;
+            }
+        }
+
+        const whereRest = { ...filters };
+        if (excludeIds.length) {
+            whereRest.id = { [Op.notIn]: excludeIds };
+        }
+
+        const rest = await ctx.orm.Propertie.findAll({
+            where: whereRest,
+            limit: Math.max(0, limit - recommendedFirst.length),
+            offset,
+            order: [["timestamp", "DESC"]],
+        });
+
+        ctx.body = [...recommendedFirst, ...rest];
         ctx.status = 200;
-
     } catch (error) {
         ctx.body = error;
         ctx.status = 400;

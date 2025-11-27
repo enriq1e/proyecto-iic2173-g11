@@ -92,12 +92,43 @@ router.get("index", "/", async (ctx) => {
                         where: { userId: userIdentifier },
                         order: [["createdAt", "DESC"]],
                     });
-                    if (rec && Array.isArray(rec.recommendationIds) && rec.recommendationIds.length) {
+
+                    console.log('[properties] Recommendation row for', userIdentifier, rec?.toJSON?.());
+
+                    //if (rec && Array.isArray(rec.recommendationIds) && rec.recommendationIds.length) {
+                    //    const recProps = await ctx.orm.Propertie.findAll({
+                    //        where: { id: rec.recommendationIds },
+                    //    });
+                    //    recommendedFirst = recProps.map(p => ({ ...p.toJSON(), recommended: true }));
+                    //    excludeIds = rec.recommendationIds;
+                    //}
+
+                    let recIds = rec?.recommendationIds;
+
+                    // Si viene como string JSON, parsearlo
+                    if (typeof recIds === 'string') {
+                        try {
+                        recIds = JSON.parse(recIds);
+                        } catch (e) {
+                        console.warn('[properties] recommendationIds no se pudo parsear como JSON:', recIds);
+                        recIds = [];
+                        }
+                    }
+
+                    if (Array.isArray(recIds) && recIds.length) {
                         const recProps = await ctx.orm.Propertie.findAll({
-                            where: { id: rec.recommendationIds },
+                        where: { id: recIds },
                         });
-                        recommendedFirst = recProps.map(p => ({ ...p.toJSON(), recommended: true }));
-                        excludeIds = rec.recommendationIds;
+
+                        recommendedFirst = recProps.map((p) => ({
+                        ...p.toJSON(),
+                        recommended: true,   // flag para el frontend
+                        }));
+
+                        excludeIds = recIds;
+                        console.log('[properties] Loaded recommended properties ids:', recIds);
+                    } else {
+                        console.log('[properties] Sin recommendationIds válidos para', userIdentifier);
                     }
                 }
 

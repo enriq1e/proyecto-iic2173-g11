@@ -70,7 +70,13 @@ router.get("index", "/", async (ctx) => {
             );
         }
 
-        const userId = ctx.query.userId || ctx.query.user_id || null;
+        const userFromState =
+            ctx.state?.user?.email ||
+            ctx.state?.user?.mail ||
+            null;
+
+        const userId = ctx.query.userId || ctx.query.user_id || userFromState;
+
         let recommendedFirst = [];
         let excludeIds = [];
 

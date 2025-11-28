@@ -61,6 +61,8 @@ router.get("show.one.propertie", "/:id", async (ctx) => {
 
 router.get("index", "/", async (ctx) => {
     try {
+        console.log("➡️ GET /properties", ctx.query);
+
         // filtros
         const filters = {};
 
@@ -68,6 +70,7 @@ router.get("index", "/", async (ctx) => {
         const page = parseInt(ctx.query.page) || 1;
         const limit = parseInt(ctx.query.limit) || 25;
         const offset = (page - 1) * limit;
+        console.log(`📄 Página: ${page}, Límite: ${limit}, Offset: ${offset}`);
 
         // filtros por precio, lugar y fecha
         if (ctx.query.price) {
@@ -81,22 +84,30 @@ router.get("index", "/", async (ctx) => {
                     { [Op.lt]: maxPrice }
                 ),
             ];
+            console.log("💰 Filtro por precio:", filters[Op.or]);
         }
+
         if (ctx.query.location) {
             filters.location = { [Op.iLike]: `%${ctx.query.location}%` };
+            console.log("📍 Filtro por ubicación:", filters.location);
         }
+
         if (ctx.query.date) {
             filters[Op.and] = where(fn("DATE", col("timestamp")), ctx.query.date);
+            console.log("📅 Filtro por fecha:", ctx.query.date);
         }
 
         const userFromState =
             ctx.state?.user?.email || ctx.state?.user?.mail || null;
         const userId = ctx.query.userId || ctx.query.user_id || userFromState;
+        console.log("👤 userId detectado:", userId);
 
         let recommendedFirst = [];
         let excludeIds = [];
 
         if (userId) {
+            console.log("🔎 Buscando recomendaciones del usuario:", userId);
+
             // Tomar las últimas 3 recomendaciones
             const recs = await ctx.orm.Recommendation.findAll({
                 where: { userId },
@@ -104,18 +115,24 @@ router.get("index", "/", async (ctx) => {
                 limit: 3,
             });
 
+            console.log(`📌 Se encontraron ${recs.length} registros de recomendaciones`);
+
             let recIds = [];
             for (const r of recs) {
+                console.log("📝 Recommendation entry:", r.toJSON());
                 if (r.recommendationIds) {
                     const ids = typeof r.recommendationIds === "string" ? JSON.parse(r.recommendationIds) : r.recommendationIds;
                     recIds.push(...ids);
                 }
             }
 
+            console.log("✅ IDs de propiedades recomendadas:", recIds);
+
             if (recIds.length) {
                 const recProps = await ctx.orm.Propertie.findAll({
                     where: { id: recIds },
                 });
+                console.log(`🏠 Se encontraron ${recProps.length} propiedades recomendadas`);
 
                 recommendedFirst = recProps.map((p) => ({
                     ...p.toJSON(),
@@ -123,7 +140,12 @@ router.get("index", "/", async (ctx) => {
                 }));
 
                 excludeIds = recIds;
+                console.log("🔒 Excluyendo IDs de propiedades recomendadas del resto:", excludeIds);
+            } else {
+                console.log("⚠️ No hay IDs de propiedades recomendadas válidos");
             }
+        } else {
+            console.log("⚠️ No se detectó userId, se omiten recomendaciones");
         }
 
         // Propiedades restantes
@@ -132,6 +154,8 @@ router.get("index", "/", async (ctx) => {
             whereRest.id = { [Op.notIn]: excludeIds };
         }
 
+        console.log("📋 Consulta de propiedades restantes:", whereRest);
+
         const rest = await ctx.orm.Propertie.findAll({
             where: whereRest,
             limit,
@@ -139,13 +163,17 @@ router.get("index", "/", async (ctx) => {
             order: [["timestamp", "DESC"]],
         });
 
+        console.log(`🏘 Se encontraron ${rest.length} propiedades restantes`);
+
         ctx.body = [...recommendedFirst, ...rest.filter(p => !excludeIds.includes(p.id))];
         ctx.status = 200;
     } catch (error) {
-        ctx.body = error;
+        console.error("❌ Error en GET /properties:", error);
+        ctx.body = { error: error.message || error };
         ctx.status = 400;
     }
 });
+
 
 
 

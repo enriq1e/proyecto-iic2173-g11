@@ -34,6 +34,31 @@ router.post("post.propertie", "/", async (ctx) => {
   }
 });
 
+router.get("show.one.propertie", "/:id", async (ctx) => {
+    try {
+        const propertie = await ctx.orm.Propertie.findByPk(ctx.params.id);
+        if (!propertie) {
+            ctx.body = "Not Found";
+            ctx.status = 404;
+            return;
+        }
+
+        let tenPercentClp = null;
+        if (propertie.currency === 'UF') {
+          const uf = await getUfValue();
+          tenPercentClp = Math.round(propertie.price * uf * 0.1);
+        } else if (propertie.currency === '$') {
+          tenPercentClp = Math.round(propertie.price * 0.1);
+        }
+        ctx.body = { ...propertie.toJSON(), ten_percent_clp: tenPercentClp };
+        ctx.status = 200;
+
+    } catch(error) {
+        ctx.body = error;
+        ctx.status = 400;
+    }
+})
+
 router.get("index", "/", async (ctx) => {
     try {
         // filtros
@@ -81,7 +106,7 @@ router.get("index", "/", async (ctx) => {
         let excludeIds = [];
 
         if (userId) {
-            const rec = await ctx.orm.Recommendation.findOne({
+            const rec = await ctx.orm.Recommendation.findAll({
                 where: { userId },
                 order: [["createdAt", "DESC"]],
             });
@@ -117,12 +142,12 @@ router.get("index", "/", async (ctx) => {
 
         const rest = await ctx.orm.Propertie.findAll({
             where: whereRest,
-            limit: Math.max(0, limit - recommendedFirst.length),
+            limit,
             offset,
             order: [["timestamp", "DESC"]],
         });
 
-        ctx.body = [...recommendedFirst, ...rest];
+        ctx.body = [...recommendedFirst, ...rest.filter(p => !excludeIds.includes(p.id))];
         ctx.status = 200;
     } catch (error) {
         ctx.body = error;
@@ -130,30 +155,5 @@ router.get("index", "/", async (ctx) => {
     }
 });
 
-router.get("show.one.propertie", "/:id", async (ctx) => {
-    try {
-        const propertie = await ctx.orm.Propertie.findByPk(ctx.params.id);
-        if (!propertie) {
-            ctx.body = "Not Found";
-            ctx.status = 404;
-            return;
-        }
-
-        // RNF11: calcular 10% en CLP
-        let tenPercentClp = null;
-        if (propertie.currency === 'UF') {
-          const uf = await getUfValue();
-          tenPercentClp = Math.round(propertie.price * uf * 0.1);
-        } else if (propertie.currency === '$') {
-          tenPercentClp = Math.round(propertie.price * 0.1);
-        }
-        ctx.body = { ...propertie.toJSON(), ten_percent_clp: tenPercentClp };
-        ctx.status = 200;
-
-    } catch(error) {
-        ctx.body = error;
-        ctx.status = 400;
-    }
-})
 
 module.exports = router;

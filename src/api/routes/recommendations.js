@@ -3,33 +3,34 @@ const Router = require('@koa/router');
 const router = new Router();
 
 // GET /recommendations?userId=<email>
-// Retorna las recomendaciones más recientes para un usuario
 router.get('/', async (ctx) => {
   try {
-    const { userId, user_id } = ctx.query;
-    const userIdentifier = userId || user_id;
+    const { userId } = ctx.query;
 
-    if (!userIdentifier) {
+    if (!userId) {
       ctx.status = 400;
-      ctx.body = { error: 'userId o user_id es requerido' };
+      ctx.body = { error: 'userId es requerido' };
       return;
     }
 
-    // Buscar la recomendación más reciente para este usuario
-    const recommendation = await ctx.orm.Recommendation.findOne({
-      where: { userId: String(userIdentifier) },
+    // Buscar todas las recomendaciones de este usuario
+    const recommendations = await ctx.orm.Recommendation.findAll({
+      where: { userId: String(userId) },
       order: [['createdAt', 'DESC']],
     });
 
-    if (!recommendation || !Array.isArray(recommendation.recommendationIds)) {
+    if (!recommendations.length) {
       ctx.status = 200;
       ctx.body = [];
       return;
     }
 
-    // Obtener las propiedades recomendadas
+    //Combinar todos los recommendationIds en un array único
+    const allIds = [...new Set(recommendations.flatMap(r => r.recommendationIds || []))];
+
+    //Obtener propiedades recomendadas
     const properties = await ctx.orm.Propertie.findAll({
-      where: { id: recommendation.recommendationIds },
+      where: { id: allIds },
     });
 
     ctx.status = 200;

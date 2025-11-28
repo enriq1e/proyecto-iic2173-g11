@@ -10,7 +10,6 @@ function checkInternalKey(ctx) {
   return String(got || '') === String(expected);
 }
 
-// Persiste recomendaciones enviadas por el worker (webhook)
 router.post('/recommendations', async (ctx) => {
   try {
     if (!checkInternalKey(ctx)) {
@@ -19,38 +18,37 @@ router.post('/recommendations', async (ctx) => {
       return;
     }
 
-    const { userId, propertyId, recommendations, jobId } = ctx.request.body || {};
+    const { userId, propertyId, recommendations } = ctx.request.body || {};
     if (!userId || !propertyId) {
       ctx.status = 400;
       ctx.body = { error: 'userId and propertyId are required' };
       return;
     }
-    // Convertimos propertyId a entero (la columna basePropertyId es INTEGER)
+
     const basePropertyId = Number(propertyId);
     if (!Number.isFinite(basePropertyId)) {
       ctx.status = 400;
       ctx.body = { error: 'propertyId must be a valid integer' };
       return;
     }
-    
-    // userId puede ser email (string) o ID numérico - guardamos como string
-    // La columna userId es VARCHAR, así que guardamos tal cual viene del worker
+
     const finalUserId = String(userId);
-    console.log(`[internal/recs] Saving recommendation for userId=${finalUserId}, basePropertyId=${basePropertyId}`);
-    
+
     const ids = Array.isArray(recommendations)
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)
       : (Array.isArray(ctx.request.body?.recommendationIds) ? ctx.request.body.recommendationIds : []);
 
-    // Upsert por (userId, basePropertyId)
-    const [rec, created] = await ctx.orm.Recommendation.findOrCreate({
+    // Borrar recomendaciones antiguas de este userId y basePropertyId
+    await ctx.orm.Recommendation.destroy({
       where: { userId: finalUserId, basePropertyId },
-      defaults: { userId: finalUserId, basePropertyId, recommendationIds: ids },
     });
-    if (!created) {
-      // Asegurarse de actualizar los recommendationIds y persistir
-      await rec.update({ recommendationIds: ids, updatedAt: new Date() });
-    }
+
+    // Guardar nuevas recomendaciones
+    await ctx.orm.Recommendation.create({
+      userId: finalUserId,
+      basePropertyId,
+      recommendationIds: ids,
+    });
 
     ctx.status = 200;
     ctx.body = { ok: true, count: ids.length };
@@ -60,5 +58,6 @@ router.post('/recommendations', async (ctx) => {
     ctx.body = { error: 'Internal error' };
   }
 });
+
 
 module.exports = router;

@@ -8,6 +8,8 @@ const authenticate = require('../middlewares/authenticate');
 const { tx } = require('../utils/transactions.js');
 const { send } = require("process");
 const axios = require("axios");
+const { isAdmin } = require("../middlewares/roles");
+
 const LAMBDA_URL = process.env.BOLETAS_LAMBDA_URL;
 
 // Para idempotencia (validar UUIDs)
@@ -435,6 +437,84 @@ router.post("reduce.offers", "/reduce-offers", async (ctx) => {
   }
 });
 
+router.patch("/purchase-intents/:id/price", authenticate, isAdmin, async (ctx) => {
+  try {
+    const { id } = ctx.params;
+    const { newPrice } = ctx.request.body;
+    const newPriceNum = Number(newPrice);
+    if (!newPriceNum || newPriceNum <= 0) {
+      ctx.status = 400;
+      ctx.body = { error: "El nuevo precio es inválido" };
+      return;
+    }
+
+    const intent = await ctx.orm.PurchaseIntent.findByPk(id);
+    if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "Visita no encontrada" };
+      return;
+    }
+    const original10pct = Number(intent.price_amount) * 0.10;
+    if (newPriceNum > original10pct) {
+      ctx.status = 400;
+      ctx.body = {
+        error: `El precio no puede exceder el 10% del precio original.`,
+        max_allowed: original10pct.toFixed(2),
+      };
+      return;
+    }
+
+    intent.custom_price_amount = newPriceNum;
+    await intent.save();
+
+    ctx.status = 200;
+    ctx.body = {
+      message: "Precio de visita actualizado correctamente",
+      original_price_10pct: original10pct.toFixed(2),
+      intent,
+    };
+  } catch (err) {
+    console.error("Error actualizando precio:", err);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
+  }
+});
+
+
+router.get("/admin", async (ctx) => {
+  try {
+    const adminUsers = await ctx.orm.User.findAll({
+      where: { role: "admin" },
+      attributes: ["email"]
+    });
+
+    const adminEmails = adminUsers.map((u) => u.email);
+
+    const purchases = await ctx.orm.PurchaseIntent.findAll({
+      where: { email: adminEmails },
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Cargar las propiedades manualmente
+    const result = [];
+    for (const p of purchases) {
+      const prop = await ctx.orm.Propertie.findByPk(p.propertieId);
+      result.push({
+        ...p.dataValues,
+        propertie: prop ? prop.dataValues : null,
+        user_email: p.email
+      });
+    }
+
+    ctx.body = result;
+
+  } catch (err) {
+    console.error("Error en GET /purchases/admin:", err);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno", details: err.message };
+  }
+});
+
 // Endpoint para listar compras del usuario autenticado (RF04)
 router.get("/", authenticate, async (ctx) => {
   const email = ctx.state.user?.email || ctx.state.user?.mail;
@@ -450,16 +530,6 @@ router.get("/", authenticate, async (ctx) => {
   });
 
   ctx.body = purchases;
-});
-
-// Endpoint para obtener detalle de una compra por ID (RF04) (no se si es necesario)
-router.get("/:id", authenticate, async (ctx) => {
-  const email = ctx.state.user?.email || ctx.state.user?.mail;
-  const p = await ctx.orm.PurchaseIntent.findOne({
-    where: { id: ctx.params.id, email }
-  });
-  if (!p) { ctx.status = 404; ctx.body = { error: 'No encontrada' }; return; }
-  ctx.body = p;
 });
 
 // Endpoints idempotentes para manejar reservas y validaciones repetidas
@@ -692,6 +762,179 @@ router.patch("/purchase-intents/:request_id/status", async (ctx) => {
     console.log(`🟢 PurchaseIntent ${request_id} → ${status}`);
   } catch (err) {
     console.error("Error actualizando estado:", err.message);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno del servidor" };
+  }
+});
+
+// Endpoint para obtener detalle de una compra por ID (RF04) (no se si es necesario) (la baje xq se enredaban las rutas de :id)
+router.get("/:id", authenticate, async (ctx) => {
+  const email = ctx.state.user?.email || ctx.state.user?.mail;
+  const p = await ctx.orm.PurchaseIntent.findOne({
+    where: { id: ctx.params.id, email }
+  });
+  if (!p) { ctx.status = 404; ctx.body = { error: 'No encontrada' }; return; }
+  ctx.body = p;
+});
+
+router.post("/resell-intent", authenticate, async (ctx) => {
+  try {
+    const { purchase_intent_id } = ctx.request.body;
+
+    if (!purchase_intent_id) {
+      ctx.status = 400;
+      ctx.body = { error: "purchase_intent_id es requerido" };
+      return;
+    }
+
+    const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
+
+    if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "Intent no encontrado" };
+      return;
+    }
+
+    // Validar que es del admin
+    const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
+    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+
+    if (!adminEmails.includes(intent.email.toLowerCase())) {
+      ctx.status = 400;
+      ctx.body = { error: "Este intent no pertenece al admin, no es reventa" };
+      return;
+    }
+
+    const price = Number(intent.custom_price_amount || Number(intent.price_amount) * 0.1);
+    const request_id = intent.request_id || randomUUID();
+    const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}`;
+
+    // Crear transacción Webpay
+    const trx = await tx.create(
+      String(intent.propertieId),
+      "g11-business",
+      Math.round(price, 0),
+      returnUrl 
+    );
+
+    ctx.body = {
+      message: "Reventa iniciada",
+      deposit_url: trx.url,
+      deposit_token: trx.token,
+      request_id,
+    };
+    ctx.status = 201;
+  } catch (err) {
+    console.error("Error en reventa:", err);
+    ctx.status = 500;
+    ctx.body = { error: "Error interno" };
+  }
+});
+
+router.post("/commit-resell", authenticate, async (ctx) => {
+  try {
+    const { token_ws, purchase_intent_id } = ctx.request.body;
+
+    if (!token_ws || !purchase_intent_id) {
+      ctx.status = 400;
+      ctx.body = { error: "token_ws y purchase_intent_id son requeridos" };
+      return;
+    }
+
+    const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
+    if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "Intent no encontrado" };
+      return;
+    }
+
+    // Validar es del admin
+    const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
+    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+
+    if (!adminEmails.includes(intent.email.toLowerCase())) {
+      ctx.status = 400;
+      ctx.body = { error: "Este intent no pertenece al admin. No es reventa." };
+      return;
+    }
+
+    // Confirmar webpay
+    const confirmedTx = await tx.commit(String(token_ws));
+    if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
+      ctx.status = 400;
+      ctx.body = { error: "Transacción rechazada por Webpay" };
+      return;
+    }
+
+    const buyerEmail = ctx.state.user.email;
+    intent.email = buyerEmail;
+    intent.status = "ACCEPTED";
+    intent.updatedAt = new Date(); 
+    await intent.save();
+
+    const property = await ctx.orm.Propertie.findByPk(intent.propertieId);
+
+    if (!LAMBDA_URL) {
+      console.error("❌ LAMBDA_URL no está definido en env");
+    } else {
+      try {
+        const payload = {
+          groupName: "Grupo 11",
+          user: {
+            name: buyerEmail.split("@")[0],
+            email: buyerEmail,
+          },
+          purchase: {
+            id: intent.id,
+            propertyName: property?.name || "Propiedad",
+            propertyUrl: property?.url || "",
+            amount: intent.custom_price_amount || (Number(intent.price_amount) * 0.1),
+            currency: intent.price_currency || "CLP",
+            status: "ACCEPTED",
+            date: new Date().toISOString(),
+          },
+        };
+
+        console.log("🟢 Enviando payload a Lambda (reventa):", payload);
+
+        const lambdaRes = await axios.post(LAMBDA_URL, payload, { timeout: 15000 });
+        const receiptUrl = lambdaRes.data?.url;
+
+        if (receiptUrl) {
+          intent.receipt_url = receiptUrl; 
+          await intent.save();
+          console.log(`Nueva boleta generada en reventa: ${receiptUrl}`);
+        } else {
+          console.warn("Lambda no devolvió URL de boleta en reventa");
+        }
+
+      } catch (err) {
+        console.error("Error generando boleta en reventa:", err.response?.data || err.message);
+      }
+    }
+
+    try {
+      await axios.post(`${process.env.NOTIFY_SERVICE_URL}/send-email`, {
+        to: buyerEmail,
+        subject: "Compra de agendamiento confirmada (Reventa)",
+        body: `Hola ${buyerEmail.split("@")[0]}, 
+          Has comprado exitosamente una visita a la propiedad ${property?.name}.
+          Tu boleta ya está disponible: ${intent.receipt_url}`,
+      });
+      console.log("Email enviado al comprador.");
+    } catch (err) {
+      console.error("Error enviando email de reventa:", err.message);
+    }
+
+    ctx.body = {
+      message: "Reventa confirmada correctamente",
+      purchase_intent_id,
+      new_owner: buyerEmail,
+      receipt_url: intent.receipt_url,
+    };
+
+  } catch (err) {
+    console.error("Error en /commit-resell:", err);
     ctx.status = 500;
     ctx.body = { error: "Error interno del servidor" };
   }

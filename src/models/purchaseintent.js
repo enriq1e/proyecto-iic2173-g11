@@ -20,6 +20,7 @@ module.exports = (sequelize, DataTypes) => {
     status:         { type: DataTypes.STRING, allowNull: false, defaultValue: 'PENDING' },
     price_amount:   { type: DataTypes.DECIMAL(18,2), allowNull: false },
     price_currency: { type: DataTypes.STRING, allowNull: false, defaultValue: 'CLP' },
+    custom_price_amount: { type: DataTypes.DECIMAL(18,2), allowNull: true },
     email:          { type: DataTypes.STRING, allowNull: false },
 
     propertieId:    { type: DataTypes.INTEGER, allowNull: false },

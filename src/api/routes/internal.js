@@ -48,7 +48,7 @@ router.post('/recommendations', async (ctx) => {
 
     // Borrar recomendaciones antiguas de este userId y basePropertyId
     const deletedCount = await ctx.orm.Recommendation.destroy({
-      where: { userId: finalUserId, basePropertyId },
+      where: { userId: finalUserId },
     });
     console.log(`🗑 Recomendaciones antiguas borradas: ${deletedCount}`);
 

@@ -14,6 +14,7 @@ dotenv.config();
 
 const ROLE = process.env.ROLE || "api";
 const isBroker = ROLE === "broker";
+const MY_GROUP_ID = Number(process.env.GROUP_ID || 0);
 
 // Conexión MQTT
 const client = mqtt.connect({
@@ -44,6 +45,22 @@ async function logEventToApi(payload) {
     console.error("Error POST /event-logs:", err.response?.data || err.message);
   }
 }
+
+// Manejo de auctions
+async function handleAuctionMessage(topic, data) {
+  // se loguea el mensaje como AUCTION
+  await logEventToApi({
+    topic,
+    event_type: "AUCTION",
+    timestamp: data.timestamp || new Date().toISOString(),
+    url: data.url || null,
+    group_id: data.group_id ?? null,
+    origin: data.group_id ?? null, // el grupo que origino el mensaje
+    operation: data.operation || null,
+    raw: data,
+  });
+}
+
 
 // ----- CONEXIÓN: diferenciar por rol -----
 client.on("connect", async () => {
@@ -107,6 +124,26 @@ client.on("connect", async () => {
       err.message
     );
   }
+
+  // properties/auctions
+  try {
+    await withFibRetry(
+      () =>
+        new Promise((res, rej) => {
+          client.subscribe(process.env.TOPIC_AUCTIONS || "properties/auctions", { qos: 1 }, (err) =>
+            err ? rej(err) : res()
+          );
+        }),
+      { maxRetries: 5, baseDelayMs: 1000 }
+    );
+    console.log(`Suscrito a ${process.env.TOPIC_AUCTIONS || "properties/auctions"}`);
+  } catch (err) {
+    console.error(
+      `Suscripción fallida a (${process.env.TOPIC_AUCTIONS || "properties/auctions"}):`,
+      err.message
+    );
+  }
+
 });
 
 
@@ -270,7 +307,10 @@ if (isBroker) {
         } catch (err) {
           console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
         }
+      } else if (topic === (process.env.TOPIC_AUCTIONS || "properties/auctions")) {
+        await handleAuctionMessage(topic, data);
       }
+
     } catch (error) {
       console.error("Error procesando mensaje:", error.message);
     }

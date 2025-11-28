@@ -12,7 +12,10 @@ function checkInternalKey(ctx) {
 
 router.post('/recommendations', async (ctx) => {
   try {
+    console.log('➡️ /recommendations llamada');
+
     if (!checkInternalKey(ctx)) {
+      console.warn('❌ Unauthorized request');
       ctx.status = 401;
       ctx.body = { error: 'Unauthorized' };
       return;
@@ -20,6 +23,7 @@ router.post('/recommendations', async (ctx) => {
 
     const { userId, propertyId, recommendations } = ctx.request.body || {};
     if (!userId || !propertyId) {
+      console.warn('❌ userId or propertyId missing', ctx.request.body);
       ctx.status = 400;
       ctx.body = { error: 'userId and propertyId are required' };
       return;
@@ -27,6 +31,7 @@ router.post('/recommendations', async (ctx) => {
 
     const basePropertyId = Number(propertyId);
     if (!Number.isFinite(basePropertyId)) {
+      console.warn('❌ propertyId not a valid integer', propertyId);
       ctx.status = 400;
       ctx.body = { error: 'propertyId must be a valid integer' };
       return;
@@ -38,26 +43,32 @@ router.post('/recommendations', async (ctx) => {
       ? recommendations.map((r) => (typeof r === 'object' ? r.id : r)).filter(Boolean)
       : (Array.isArray(ctx.request.body?.recommendationIds) ? ctx.request.body.recommendationIds : []);
 
+    console.log(`👤 Procesando recomendaciones para userId=${finalUserId}, basePropertyId=${basePropertyId}`);
+    console.log('🔹 Nuevos IDs:', ids);
+
     // Borrar recomendaciones antiguas de este userId y basePropertyId
-    await ctx.orm.Recommendation.destroy({
+    const deletedCount = await ctx.orm.Recommendation.destroy({
       where: { userId: finalUserId, basePropertyId },
     });
+    console.log(`🗑 Recomendaciones antiguas borradas: ${deletedCount}`);
 
     // Guardar nuevas recomendaciones
-    await ctx.orm.Recommendation.create({
+    const created = await ctx.orm.Recommendation.create({
       userId: finalUserId,
       basePropertyId,
       recommendationIds: ids,
     });
+    console.log('✅ Nuevas recomendaciones creadas:', created.toJSON());
 
     ctx.status = 200;
     ctx.body = { ok: true, count: ids.length };
   } catch (err) {
-    console.error('internal /recommendations error:', err);
+    console.error('❌ internal /recommendations error:', err);
     ctx.status = 500;
     ctx.body = { error: 'Internal error' };
   }
 });
+
 
 
 module.exports = router;

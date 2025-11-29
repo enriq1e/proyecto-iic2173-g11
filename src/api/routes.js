@@ -5,6 +5,7 @@ const eventLogs = require("./routes/eventLogs.js");
 const wallet = require("./routes/wallet.js");
 const internal = require("./routes/internal.js");
 const recommendations = require("./routes/recommendations.js");
+const auctions = require("./routes/auctions.js");
 
 const router = new Router();
 
@@ -19,5 +20,6 @@ router.use('/purchases', purchases.routes());
 router.use('/event-logs', eventLogs.routes());
 router.use('/internal', internal.routes());
 router.use('/recommendations', recommendations.routes());
+router.use('/auctions', auctions.routes());
 
 module.exports = router;

@@ -14,6 +14,7 @@ dotenv.config();
 
 const ROLE = process.env.ROLE || "api";
 const isBroker = ROLE === "broker";
+const MY_GROUP_ID = Number(process.env.GROUP_ID || 0);
 
 // Conexión MQTT
 const client = mqtt.connect({
@@ -44,6 +45,22 @@ async function logEventToApi(payload) {
     console.error("Error POST /event-logs:", err.response?.data || err.message);
   }
 }
+
+// Manejo de auctions
+async function handleAuctionMessage(topic, data) {
+  // se loguea el mensaje como AUCTION
+  await logEventToApi({
+    topic,
+    event_type: "AUCTION",
+    timestamp: data.timestamp || new Date().toISOString(),
+    url: data.url || null,
+    group_id: data.group_id ?? null,
+    origin: data.group_id ?? null, // el grupo que origino el mensaje
+    operation: data.operation || null,
+    raw: data,
+  });
+}
+
 
 // ----- CONEXIÓN: diferenciar por rol -----
 client.on("connect", async () => {
@@ -107,6 +124,26 @@ client.on("connect", async () => {
       err.message
     );
   }
+
+  // properties/auctions
+  try {
+    await withFibRetry(
+      () =>
+        new Promise((res, rej) => {
+          client.subscribe(process.env.TOPIC_AUCTIONS || "properties/auctions", { qos: 1 }, (err) =>
+            err ? rej(err) : res()
+          );
+        }),
+      { maxRetries: 5, baseDelayMs: 1000 }
+    );
+    console.log(`Suscrito a ${process.env.TOPIC_AUCTIONS || "properties/auctions"}`);
+  } catch (err) {
+    console.error(
+      `Suscripción fallida a (${process.env.TOPIC_AUCTIONS || "properties/auctions"}):`,
+      err.message
+    );
+  }
+
 });
 
 
@@ -270,7 +307,10 @@ if (isBroker) {
         } catch (err) {
           console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
         }
+      } else if (topic === (process.env.TOPIC_AUCTIONS || "properties/auctions")) {
+        await handleAuctionMessage(topic, data);
       }
+
     } catch (error) {
       console.error("Error procesando mensaje:", error.message);
     }
@@ -331,6 +371,97 @@ function sendValidationResult(status, requestId, reason = null) {
     throw err;});
 }
 
+// Auctions:
+function sendAuctionOffer({ url, quantity }) {
+  const message = {
+    auction_id: randomUUID(),
+    proposal_id: "",
+    url,
+    timestamp: new Date().toISOString(),
+    quantity: Number(quantity),
+    group_id: String(process.env.GROUP_ID),
+    operation: "offer",
+  };
+
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_AUCTIONS, JSON.stringify(message)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  )
+    .then(() => {
+      console.log("✅ OFFER enviada a auctions:", message);
+      return message; // devolvemos todo por si el caller quiere guardar auction_id
+    })
+    .catch((err) => {
+      console.error("❌ Error enviando OFFER a auctions:", err.message);
+      throw err;
+    });
+}
+
+function sendAuctionProposal({ auction_id, url, quantity }) {
+  const message = {
+    auction_id,
+    proposal_id: randomUUID(),
+    url,
+    timestamp: new Date().toISOString(),
+    quantity: Number(quantity),
+    group_id: String(process.env.GROUP_ID),
+    operation: "proposal",
+  };
+
+  return withFibRetry(
+    () => publishAsync(process.env.TOPIC_AUCTIONS, JSON.stringify(message)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  )
+    .then(() => {
+      console.log("✅ PROPOSAL enviada a auctions:", message);
+      return message; // devolvemos auction_id + proposal_id
+    })
+    .catch((err) => {
+      console.error("❌ Error enviando PROPOSAL a auctions:", err.message);
+      throw err;
+    });
+}
+
+async function sendAuctionResolution({ proposalEvent, resolution }) {
+  // resolution: "acceptance" o "rejection"
+  const op =
+    resolution === "acceptance" || resolution === "rejection"
+      ? resolution
+      : "rejection";
+
+  const raw = proposalEvent.raw || {};
+
+  const message = {
+    auction_id: raw.auction_id,
+    proposal_id: raw.proposal_id,
+    url: raw.url,
+    timestamp: raw.timestamp || new Date().toISOString(),
+    quantity: Number(raw.quantity || 0),
+    group_id: String(process.env.GROUP_ID),
+    operation: op,
+  };
+
+  if (!message.auction_id || !message.proposal_id) {
+    throw new Error("Proposal sin auction_id/proposal_id en raw");
+  }
+
+  await withFibRetry(
+    () => publishAsync(process.env.TOPIC_AUCTIONS, JSON.stringify(message)),
+    { maxRetries: 6, baseDelayMs: 1000 }
+  );
+
+  console.log(`✅ ${op.toUpperCase()} enviada a auctions:`, message);
+  return message;
+}
+
+
 client.on("error", (error) => console.error("MQTT error:", error.message));
 
-module.exports = { sendPurchaseRequest, sendValidationResult };
+module.exports = {
+  sendPurchaseRequest,
+  sendValidationResult,
+  sendAuctionOffer,
+  sendAuctionProposal,
+  sendAuctionResolution,
+};
+

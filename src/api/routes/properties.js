@@ -34,102 +34,6 @@ router.post("post.propertie", "/", async (ctx) => {
   }
 });
 
-router.get("index", "/", async (ctx) => {
-    try {
-        // filtros
-        const filters = {};
-
-        // paginacion y limite de 25
-        const page = parseInt(ctx.query.page) || 1;
-        const limit = parseInt(ctx.query.limit) || 25; // para que se pueda cambiar
-        const offset = (page - 1) * limit;
-
-        // filtros por precio, lugar y fecha
-        if (ctx.query.price) {
-            const maxPrice = parseFloat(ctx.query.price);
-            const UF_value = 40000; //para que tambien filtre las propiedades con UF
-
-            filters[Op.or] = [
-                {
-                    currency: "$",
-                    price: { [Op.lt]: maxPrice },
-                },
-                Sequelize.where(
-                    Sequelize.literal(`"Propertie"."currency" = 'UF' AND CAST("Propertie"."price" AS FLOAT) * ${UF_value}`),
-                { [Op.lt]: maxPrice }
-                ),
-            ];
-        }
-        if (ctx.query.location) {
-            filters.location = { [Op.iLike]: `%${ctx.query.location}%` };
-        }
-        if (ctx.query.date) {
-            filters[Op.and] = where(
-                fn("DATE", col("timestamp")), // con esto elimino la hora pra que solo compare la fecha
-                ctx.query.date
-            );
-        }
-
-        const userFromState =
-            ctx.state?.user?.email ||
-            ctx.state?.user?.mail ||
-            null;
-
-        const userId = ctx.query.userId || ctx.query.user_id || userFromState;
-
-        let recommendedFirst = [];
-        let excludeIds = [];
-
-        if (userId) {
-            const rec = await ctx.orm.Recommendation.findOne({
-                where: { userId },
-                order: [["createdAt", "DESC"]],
-            });
-
-            let recIds = rec?.recommendationIds;
-
-            if (typeof recIds === "string") {
-                try {
-                    recIds = JSON.parse(recIds);
-                } catch {
-                    recIds = [];
-                }
-            }
-
-        if (Array.isArray(recIds) && recIds.length) {
-            const recProps = await ctx.orm.Propertie.findAll({
-                where: { id: recIds },
-            });
-
-            recommendedFirst = recProps.map((p) => ({
-                ...p.toJSON(),
-                recommended: true,
-            }));
-
-            excludeIds = recIds;
-            }
-        }
-
-        const whereRest = { ...filters };
-        if (excludeIds.length) {
-            whereRest.id = { [Op.notIn]: excludeIds };
-        }
-
-        const rest = await ctx.orm.Propertie.findAll({
-            where: whereRest,
-            limit: Math.max(0, limit - recommendedFirst.length),
-            offset,
-            order: [["timestamp", "DESC"]],
-        });
-
-        ctx.body = [...recommendedFirst, ...rest];
-        ctx.status = 200;
-    } catch (error) {
-        ctx.body = error;
-        ctx.status = 400;
-    }
-});
-
 router.get("show.one.propertie", "/:id", async (ctx) => {
     try {
         const propertie = await ctx.orm.Propertie.findByPk(ctx.params.id);
@@ -139,7 +43,6 @@ router.get("show.one.propertie", "/:id", async (ctx) => {
             return;
         }
 
-        // RNF11: calcular 10% en CLP
         let tenPercentClp = null;
         if (propertie.currency === 'UF') {
           const uf = await getUfValue();
@@ -155,5 +58,123 @@ router.get("show.one.propertie", "/:id", async (ctx) => {
         ctx.status = 400;
     }
 })
+
+router.get("index", "/", async (ctx) => {
+    try {
+        console.log("➡️ GET /properties", ctx.query);
+
+        // filtros
+        const filters = {};
+
+        // paginación y límite
+        const page = parseInt(ctx.query.page) || 1;
+        const limit = parseInt(ctx.query.limit) || 25;
+        const offset = (page - 1) * limit;
+        console.log(`📄 Página: ${page}, Límite: ${limit}, Offset: ${offset}`);
+
+        // filtros por precio, lugar y fecha
+        if (ctx.query.price) {
+            const maxPrice = parseFloat(ctx.query.price);
+            const UF_value = 40000;
+
+            filters[Op.or] = [
+                { currency: "$", price: { [Op.lt]: maxPrice } },
+                Sequelize.where(
+                    Sequelize.literal(`"Propertie"."currency" = 'UF' AND CAST("Propertie"."price" AS FLOAT) * ${UF_value}`),
+                    { [Op.lt]: maxPrice }
+                ),
+            ];
+            console.log("💰 Filtro por precio:", filters[Op.or]);
+        }
+
+        if (ctx.query.location) {
+            filters.location = { [Op.iLike]: `%${ctx.query.location}%` };
+            console.log("📍 Filtro por ubicación:", filters.location);
+        }
+
+        if (ctx.query.date) {
+            filters[Op.and] = where(fn("DATE", col("timestamp")), ctx.query.date);
+            console.log("📅 Filtro por fecha:", ctx.query.date);
+        }
+
+        const userFromState =
+            ctx.state?.user?.email || ctx.state?.user?.mail || null;
+        const userId = ctx.query.userId || ctx.query.user_id || userFromState;
+        console.log("👤 userId detectado:", userId);
+
+        let recommendedFirst = [];
+        let excludeIds = [];
+
+        if (userId) {
+            console.log("🔎 Buscando recomendaciones del usuario:", userId);
+
+            // Tomar las últimas 3 recomendaciones
+            const recs = await ctx.orm.Recommendation.findAll({
+                where: { userId },
+                order: [["createdAt", "DESC"]],
+                limit: 3,
+            });
+
+            console.log(`📌 Se encontraron ${recs.length} registros de recomendaciones`);
+
+            let recIds = [];
+            for (const r of recs) {
+                console.log("📝 Recommendation entry:", r.toJSON());
+                if (r.recommendationIds) {
+                    const ids = typeof r.recommendationIds === "string" ? JSON.parse(r.recommendationIds) : r.recommendationIds;
+                    recIds.push(...ids);
+                }
+            }
+
+            console.log("✅ IDs de propiedades recomendadas:", recIds);
+
+            if (recIds.length) {
+                const recProps = await ctx.orm.Propertie.findAll({
+                    where: { id: recIds },
+                });
+                console.log(`🏠 Se encontraron ${recProps.length} propiedades recomendadas`);
+
+                recommendedFirst = recProps.map((p) => ({
+                    ...p.toJSON(),
+                    recommended: true,
+                }));
+
+                excludeIds = recIds;
+                console.log("🔒 Excluyendo IDs de propiedades recomendadas del resto:", excludeIds);
+            } else {
+                console.log("⚠️ No hay IDs de propiedades recomendadas válidos");
+            }
+        } else {
+            console.log("⚠️ No se detectó userId, se omiten recomendaciones");
+        }
+
+        // Propiedades restantes
+        const whereRest = { ...filters };
+        if (excludeIds.length) {
+            whereRest.id = { [Op.notIn]: excludeIds };
+        }
+
+        console.log("📋 Consulta de propiedades restantes:", whereRest);
+
+        const rest = await ctx.orm.Propertie.findAll({
+            where: whereRest,
+            limit,
+            offset,
+            order: [["timestamp", "DESC"]],
+        });
+
+        console.log(`🏘 Se encontraron ${rest.length} propiedades restantes`);
+
+        ctx.body = [...recommendedFirst, ...rest.filter(p => !excludeIds.includes(p.id))];
+        ctx.status = 200;
+    } catch (error) {
+        console.error("❌ Error en GET /properties:", error);
+        ctx.body = { error: error.message || error };
+        ctx.status = 400;
+    }
+});
+
+
+
 
 module.exports = router;

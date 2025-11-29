@@ -1,7 +1,6 @@
 // Carga opcional de New Relic: solo enciéndelo cuando esté habilitado y disponible
 try {
     if (process.env.NEW_RELIC_ENABLED === 'true') {
-        // eslint-disable-next-line import/no-extraneous-dependencies, global-require
         require('newrelic');
         console.log('[APM] New Relic habilitado');
     } else {

@@ -5,7 +5,9 @@ const bcrypt = require("bcryptjs");
 const router = new Router();
 
 router.post("/signup", async (ctx) => {
-  const { username, email, password } = ctx.request.body;
+  const { username, email, password, role } = ctx.request.body;
+  console.log(ctx.request.body);
+  console.log("====================== ")
   try {
     const existingUser = await ctx.orm.User.findOne({ where: { email } });
     if (existingUser) {
@@ -20,7 +22,7 @@ router.post("/signup", async (ctx) => {
       username,
       email,
       password: hashedPassword,
-      role: "user",
+      role: role || "user",
     });
 
     const token = jwt.sign(

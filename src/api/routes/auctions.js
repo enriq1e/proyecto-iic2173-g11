@@ -16,7 +16,7 @@ const TOPIC_AUCTIONS = process.env.TOPIC_AUCTIONS || "properties/auctions";
 
 // GET /auctions/offers
 // Offers de subastas publicadas por OTROS grupos
-router.get("/offers", isAdmin, async (ctx) => {
+router.get("/offers", authenticate, isAdmin, async (ctx) => {
   const myGroupId = String(process.env.GROUP_ID || "0");
 
   const events = await ctx.orm.EventLog.findAll({

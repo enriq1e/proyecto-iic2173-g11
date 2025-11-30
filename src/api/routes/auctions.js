@@ -147,7 +147,14 @@ router.post("/offers", async (ctx) => {
   }
 
   try {
-    return "mensaje de prueba";
+    const message = await sendAuctionOffer({ url, quantity });
+
+    ctx.status = 201;
+    ctx.body = {
+      message: "Offer enviada al broker",
+      auction_id: message.auction_id,
+      payload: message,
+    };
   } catch (err) {
     ctx.status = 502;
     ctx.body = { error: "Error enviando offer a auctions", details: err.message };
@@ -167,7 +174,16 @@ router.post("/proposals", async (ctx) => {
   }
 
   try {
-    return "mensaje de prueba";
+    
+    const message = await sendAuctionProposal({ auction_id, url, quantity });
+
+    ctx.status = 201;
+    ctx.body = {
+      message: "Proposal enviada al broker",
+      auction_id: message.auction_id,
+      proposal_id: message.proposal_id,
+      payload: message,
+    };
   } catch (err) {
     ctx.status = 502;
     ctx.body = { error: "Error enviando proposal a auctions", details: err.message };

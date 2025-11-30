@@ -45,11 +45,25 @@ router.get("/offers", authenticate, isAdmin, async (ctx) => {
   }
 
   // Devolvemos los eventos junto a la primera propiedad coincidente (si existe)
-  const result = externalOffers.map((ev) => ({
-    event: ev,
-    property: propertiesByUrl[ev.url] || null,
-  }));
+  // y deduplicamos por `property.id` para evitar repetidos.
+  const uniq = new Map();
+  for (const ev of externalOffers) {
+    const prop = propertiesByUrl[ev.url] || null;
+    if (prop && prop.id) {
+      const key = String(prop.id);
+      if (!uniq.has(key)) {
+        uniq.set(key, { event: ev, property: prop });
+      }
+    } else {
+      // fallback: si no encontramos propiedad, deduplicar por URL
+      const key = ev.url || `__no_url__:${ev.id}`;
+      if (!uniq.has(key)) {
+        uniq.set(key, { event: ev, property: prop });
+      }
+    }
+  }
 
+  const result = Array.from(uniq.values());
   ctx.body = result;
 });
 
@@ -137,7 +151,7 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
 
 // POST /auctions/offers
 // El admin publica una oferta de visitas para subastar a otros grupos
-router.post("/offers", async (ctx) => {
+router.post("/offers", authenticate, isAdmin, async (ctx) => {
   const { url, quantity } = ctx.request.body || {};
 
   if (!url || !quantity) {
@@ -164,7 +178,7 @@ router.post("/offers", async (ctx) => {
 // POST /auctions/proposals
 // El admin responde a la oferta de otro grupo con una proposal
 // body: { auction_id, url, quantity }
-router.post("/proposals", async (ctx) => {
+router.post("/proposals", authenticate, isAdmin, async (ctx) => {
   const { auction_id, url, quantity } = ctx.request.body || {};
 
   if (!auction_id || !url || !quantity) {

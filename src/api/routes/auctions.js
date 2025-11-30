@@ -32,8 +32,24 @@ router.get("/offers", authenticate, isAdmin, async (ctx) => {
   const externalOffers = events.filter(
     (e) => String(e.group_id) !== myGroupId
   );
+  // Buscar propiedades que coincidan con las URLs de las offers
+  const urls = Array.from(new Set(externalOffers.map((e) => e.url).filter(Boolean)));
+  let propertiesByUrl = {};
+  if (urls.length > 0) {
+    const props = await ctx.orm.Propertie.findAll({ where: { url: urls } });
+    propertiesByUrl = props.reduce((acc, p) => {
+      acc[p.url] = p;
+      return acc;
+    }, {});
+  }
 
-  ctx.body = externalOffers;
+  // Devolvemos los eventos junto a la primera propiedad coincidente (si existe)
+  const result = externalOffers.map((ev) => ({
+    event: ev,
+    property: propertiesByUrl[ev.url] || null,
+  }));
+
+  ctx.body = result;
 });
 
 // GET /auctions/proposals
@@ -77,6 +93,43 @@ router.get("/proposals", authenticate, isAdmin, async (ctx) => {
 
   ctx.body = proposalsToUs;
 });
+
+// GET /auctions/proposals-url?property_url=<url>
+// Busca todas las proposals cuyo campo `url` coincida exactamente con el parámetro
+router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
+  try {
+    const rawUrl = ctx.query.property_url;
+    if (!rawUrl) {
+      ctx.status = 400;
+      ctx.body = { error: 'property_url query param is required' };
+      return;
+    }
+
+    const propertyUrl = decodeURIComponent(rawUrl);
+
+    const proposals = await ctx.orm.EventLog.findAll({
+      where: {
+        topic: TOPIC_AUCTIONS,
+        event_type: 'AUCTION',
+        operation: 'proposal',
+        url: propertyUrl,
+      },
+      order: [["timestamp", "DESC"]],
+    });
+
+    const property = await ctx.orm.Propertie.findOne({ where: { url: propertyUrl } });
+
+    const result = proposals.map((p) => ({ event: p, property: property || null }));
+
+    ctx.body = result;
+  } catch (err) {
+    console.error('Error fetching proposalsx:', err.message);
+    ctx.status = 500;
+    ctx.body = { error: 'Internal server error' };
+  }
+});
+
+
 
 //RNF05---
 

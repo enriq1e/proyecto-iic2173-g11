@@ -833,11 +833,13 @@ router.post("/resell-intent", authenticate, async (ctx) => {
 
 router.post("/commit-resell", async (ctx) => {
   try {
-    const { token_ws, purchase_intent_id } = ctx.request.body;
+    const { token_ws, purchase_intent_id, buyer_email } = ctx.request.body;
 
-    if (!token_ws || !purchase_intent_id) {
+    if (!token_ws || !purchase_intent_id || !buyer_email) {
       ctx.status = 400;
-      ctx.body = { error: "token_ws y purchase_intent_id son requeridos" };
+      ctx.body = {
+        error: "token_ws, purchase_intent_id y buyer_email son requeridos",
+      };
       return;
     }
 
@@ -848,17 +850,17 @@ router.post("/commit-resell", async (ctx) => {
       return;
     }
 
-    // Validar es del admin
     const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
-    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+    const adminEmails = adminUsers.map((a) => a.email.toLowerCase());
 
     if (!adminEmails.includes(intent.email.toLowerCase())) {
       ctx.status = 400;
-      ctx.body = { error: "Este intent no pertenece al admin. No es reventa." };
+      ctx.body = {
+        error: "Este intent no pertenece al admin. No es reventa.",
+      };
       return;
     }
 
-    // Confirmar webpay
     const confirmedTx = await tx.commit(String(token_ws));
     if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
       ctx.status = 400;
@@ -866,10 +868,10 @@ router.post("/commit-resell", async (ctx) => {
       return;
     }
 
-    const buyerEmail = ctx.state.user.email;
+    const buyerEmail = buyer_email;
     intent.email = buyerEmail;
     intent.status = "ACCEPTED";
-    intent.updatedAt = new Date(); 
+    intent.updatedAt = new Date();
     await intent.save();
 
     const property = await ctx.orm.Propertie.findByPk(intent.propertieId);
@@ -888,7 +890,9 @@ router.post("/commit-resell", async (ctx) => {
             id: intent.id,
             propertyName: property?.name || "Propiedad",
             propertyUrl: property?.url || "",
-            amount: intent.custom_price_amount || (Number(intent.price_amount) * 0.1),
+            amount:
+              intent.custom_price_amount ||
+              Number(intent.price_amount) * 0.1,
             currency: intent.price_currency || "CLP",
             status: "ACCEPTED",
             date: new Date().toISOString(),
@@ -897,19 +901,23 @@ router.post("/commit-resell", async (ctx) => {
 
         console.log("🟢 Enviando payload a Lambda (reventa):", payload);
 
-        const lambdaRes = await axios.post(LAMBDA_URL, payload, { timeout: 15000 });
+        const lambdaRes = await axios.post(LAMBDA_URL, payload, {
+          timeout: 15000,
+        });
         const receiptUrl = lambdaRes.data?.url;
 
         if (receiptUrl) {
-          intent.receipt_url = receiptUrl; 
+          intent.receipt_url = receiptUrl;
           await intent.save();
           console.log(`Nueva boleta generada en reventa: ${receiptUrl}`);
         } else {
           console.warn("Lambda no devolvió URL de boleta en reventa");
         }
-
       } catch (err) {
-        console.error("Error generando boleta en reventa:", err.response?.data || err.message);
+        console.error(
+          "Error generando boleta en reventa:",
+          err.response?.data || err.message
+        );
       }
     }
 
@@ -918,8 +926,7 @@ router.post("/commit-resell", async (ctx) => {
         to: buyerEmail,
         subject: "Compra de agendamiento confirmada (Reventa)",
         body: `Hola ${buyerEmail.split("@")[0]}, 
-          Has comprado exitosamente una visita a la propiedad ${property?.name}.
-          Tu boleta ya está disponible: ${intent.receipt_url}`,
+Has comprado exitosamente una visita a la propiedad ${property?.name}.`,
       });
       console.log("Email enviado al comprador.");
     } catch (err) {
@@ -932,13 +939,12 @@ router.post("/commit-resell", async (ctx) => {
       new_owner: buyerEmail,
       receipt_url: intent.receipt_url,
     };
-
+    
   } catch (err) {
     console.error("Error en /commit-resell:", err);
     ctx.status = 500;
     ctx.body = { error: "Error interno del servidor" };
   }
 });
-
 
 module.exports = router;

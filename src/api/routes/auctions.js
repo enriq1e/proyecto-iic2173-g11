@@ -147,14 +147,7 @@ router.post("/offers", async (ctx) => {
   }
 
   try {
-    const message = await sendAuctionOffer({ url, quantity });
-
-    ctx.status = 201;
-    ctx.body = {
-      message: "Offer enviada al broker",
-      auction_id: message.auction_id,
-      payload: message,
-    };
+    return "mensaje de prueba";
   } catch (err) {
     ctx.status = 502;
     ctx.body = { error: "Error enviando offer a auctions", details: err.message };

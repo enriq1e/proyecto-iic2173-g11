@@ -454,7 +454,7 @@ router.patch("/purchase-intents/:id/price", authenticate, isAdmin, async (ctx) =
       ctx.body = { error: "Visita no encontrada" };
       return;
     }
-    const original10pct = Number(intent.price_amount) * 0.10;
+    const original10pct = Number(intent.price_amount) ;
     if (newPriceNum > original10pct) {
       ctx.status = 400;
       ctx.body = {

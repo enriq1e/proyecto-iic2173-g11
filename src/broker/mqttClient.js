@@ -307,6 +307,8 @@ if (isBroker) {
         } catch (err) {
           console.error("Error aplicando VALIDATION:", err.response?.data || err.message);
         }
+
+        
       } else if (topic === (process.env.TOPIC_AUCTIONS || "properties/auctions")) {
         await handleAuctionMessage(topic, data);
       }

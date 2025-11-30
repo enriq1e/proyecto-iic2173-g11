@@ -24,6 +24,7 @@ router.get("/offers", authenticate, isAdmin, async (ctx) => {
       topic: TOPIC_AUCTIONS,
       event_type: "AUCTION",
       operation: "offer",
+      status: "PENDING",
     },
     order: [["timestamp", "DESC"]],
   });
@@ -81,6 +82,7 @@ router.get("/proposals", authenticate, isAdmin, async (ctx) => {
       topic: TOPIC_AUCTIONS,
       event_type: "AUCTION",
       operation: "proposal",
+      status: { [ctx.orm.Sequelize.Op.ne]: 'REJECTED' },
     },
     order: [["timestamp", "DESC"]],
   });
@@ -113,10 +115,10 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
         event_type: 'AUCTION',
         operation: 'proposal',
         url: propertyUrl,
+        status: { [ctx.orm.Sequelize.Op.ne]: 'REJECTED' },
       },
       order: [["timestamp", "DESC"]],
     });
-
     const property = await ctx.orm.Propertie.findOne({ where: { url: propertyUrl } });
 
     const result = proposals.map((p) => ({ event: p, property: property || null }));

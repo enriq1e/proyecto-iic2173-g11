@@ -57,6 +57,7 @@ async function handleAuctionMessage(topic, data) {
     group_id: data.group_id ?? null,
     origin: data.group_id ?? null, // el grupo que origino el mensaje
     operation: data.operation || null,
+    status: 'PENDING', // Verificación Local
     raw: data,
   });
 }

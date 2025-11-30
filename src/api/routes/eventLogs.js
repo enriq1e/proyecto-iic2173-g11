@@ -167,28 +167,21 @@ async function applyAuctionAcceptance(ctx, acceptanceEvent) {
     await subtractOffers(proposalUrl, proposalquantity);
   }
 
-  // Cuando un grupo envie un evento de que una propuesta fue aceptada,
-  // deben asumir que, si habian mandado otra propuesta que esta en espera
-  // de respuesta de ese auction_id, esa fue rechazada.
-  //
-  // Esto aplica al grupo que envio la PROPOSAL (proposalGroup).
-  if (myGroupId === proposalGroup) {
-    for (const ev of allProposals) {
-      if (!ev.raw || ev.raw.auction_id !== auctionId) continue;
+  // Marcar todas las proposals del mismo auction_id: la seleccionada como ACCEPTED,
+  // las demás que estén en PENDING o sin estado pasarán a REJECTED.
+  // Hacemos esto de forma global en la base de datos para mantener consistencia
+  // independientemente de si nuestro grupo fue el offer o el proposal.
+  for (const ev of allProposals) {
+    if (!ev.raw || ev.raw.auction_id !== auctionId) continue;
 
-      if (ev.id === proposalEvent.id) {
+    if (ev.id === proposalEvent.id) {
+      if (ev.status !== "ACCEPTED") {
         ev.status = "ACCEPTED";
-      } else if (!ev.status || ev.status === "PENDING") {
-        ev.status = "REJECTED";
+        await ev.save();
       }
+    } else if (!ev.status || ev.status === "PENDING") {
+      ev.status = "REJECTED";
       await ev.save();
-    }
-  } else if (myGroupId === offerGroup) {
-    // Si somos el grupo de la offer, al menos marcamos
-    // la proposal aceptada explicitamente como accepted
-    if (!proposalEvent.status || proposalEvent.status === "PENDING") {
-      proposalEvent.status = "ACCEPTED";
-      await proposalEvent.save();
     }
   }
 
@@ -231,6 +224,66 @@ router.post('/', async (ctx) => {
       } catch (e) {
         console.error("[AUCTIONS] Error aplicando RF06 en acceptance:", e);
         // No rompemos el POST /event-logs por esto, solo lo dejamos logueado
+      }
+    }
+
+    // si es un rejection de AUCTION, marcamos todas las proposals con el
+    // mismo raw.proposal_id como REJECTED (tolerante a raw stringificado)
+    if (
+      row.topic === TOPIC_AUCTIONS &&
+      row.event_type === "AUCTION" &&
+      row.operation === "rejection"
+    ) {
+      try {
+        // extraer proposal_id desde row.raw (puede ser objeto o string JSON)
+        let rejectedProposalId = null;
+        if (row.raw) {
+          if (typeof row.raw === 'string') {
+            try {
+              const parsed = JSON.parse(row.raw);
+              rejectedProposalId = parsed?.proposal_id || null;
+            } catch (e) {
+              // no JSON
+              rejectedProposalId = null;
+            }
+          } else if (typeof row.raw === 'object') {
+            rejectedProposalId = row.raw.proposal_id || null;
+          }
+        }
+
+        if (rejectedProposalId) {
+          const allProposals = await ctx.orm.EventLog.findAll({
+            where: {
+              topic: TOPIC_AUCTIONS,
+              event_type: "AUCTION",
+              operation: "proposal",
+            },
+          });
+
+          for (const ev of allProposals) {
+            if (!ev.raw) continue;
+
+            let evProposalId = null;
+            if (typeof ev.raw === 'string') {
+              try {
+                evProposalId = JSON.parse(ev.raw)?.proposal_id || null;
+              } catch (e) {
+                evProposalId = null;
+              }
+            } else if (typeof ev.raw === 'object') {
+              evProposalId = ev.raw.proposal_id || null;
+            }
+
+            if (evProposalId && String(evProposalId) === String(rejectedProposalId)) {
+              if (ev.status !== 'REJECTED') {
+                ev.status = 'REJECTED';
+                await ev.save();
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[AUCTIONS] Error aplicando rejection:', e);
       }
     }
 

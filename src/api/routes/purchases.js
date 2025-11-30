@@ -495,14 +495,37 @@ router.get("/admin", async (ctx) => {
       order: [["createdAt", "DESC"]],
     });
 
-    // Cargar las propiedades manualmente
+    // Cargar las propiedades manualmente y determinar si alguna vez fue subastada
     const result = [];
     for (const p of purchases) {
       const prop = await ctx.orm.Propertie.findByPk(p.propertieId);
+
+        // Determinar si existe algún EventLog de topic 'properties/auctions' cuya `url`
+        // coincida con la URL de la propiedad (se puso en subasta)
+        let wasAuctioned = false;
+        let propertyAuctioned = false; // indica que la subasta fue aceptada (ya se subastó)
+        if (prop && prop.url) {
+          const anyAuctionEvent = await ctx.orm.EventLog.findOne({
+            where: { event_type: 'AUCTION', url: prop.url },
+          });
+          wasAuctioned = !!anyAuctionEvent;
+
+          const acceptedAuction = await ctx.orm.EventLog.findOne({
+            where: {
+              event_type: 'AUCTION',
+              status: 'ACCEPTED',
+              url: prop.url,
+            },
+          });
+          propertyAuctioned = !!acceptedAuction;
+        }
+
       result.push({
         ...p.dataValues,
         propertie: prop ? prop.dataValues : null,
-        user_email: p.email
+        user_email: p.email,
+        wasAuctioned,
+          propertyAuctioned,
       });
     }
 

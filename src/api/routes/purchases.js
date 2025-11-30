@@ -780,6 +780,7 @@ router.get("/:id", authenticate, async (ctx) => {
 router.post("/resell-intent", authenticate, async (ctx) => {
   try {
     const { purchase_intent_id } = ctx.request.body;
+    const buyerEmail = ctx.state.user.email; // comprador real
 
     if (!purchase_intent_id) {
       ctx.status = 400;
@@ -788,16 +789,15 @@ router.post("/resell-intent", authenticate, async (ctx) => {
     }
 
     const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
-
     if (!intent) {
       ctx.status = 404;
       ctx.body = { error: "Intent no encontrado" };
       return;
     }
 
-    // Validar que es del admin
+    // Validar que pertenece al admin
     const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
-    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+    const adminEmails = adminUsers.map(u => u.email.toLowerCase());
 
     if (!adminEmails.includes(intent.email.toLowerCase())) {
       ctx.status = 400;
@@ -807,14 +807,15 @@ router.post("/resell-intent", authenticate, async (ctx) => {
 
     const price = Number(intent.custom_price_amount || Number(intent.price_amount) * 0.1);
     const request_id = intent.request_id || randomUUID();
-    const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}`;
 
-    // Crear transacción Webpay
+    // RETORNO QUE INCLUYE EL EMAIL DEL COMPRADOR
+    const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}&buyer_email=${buyerEmail}`;
+
     const trx = await tx.create(
       String(intent.propertieId),
       "g11-business",
       Math.round(price, 0),
-      returnUrl 
+      returnUrl
     );
 
     ctx.body = {
@@ -824,6 +825,7 @@ router.post("/resell-intent", authenticate, async (ctx) => {
       request_id,
     };
     ctx.status = 201;
+
   } catch (err) {
     console.error("Error en reventa:", err);
     ctx.status = 500;
@@ -831,24 +833,24 @@ router.post("/resell-intent", authenticate, async (ctx) => {
   }
 });
 
-router.post("/commit-resell", authenticate, async (ctx) => {
+router.post("/commit-resell", async (ctx) => {
   try {
-    const { token_ws, purchase_intent_id } = ctx.request.body;
+    const { token_ws, purchase_intent_id, buyer_email } = ctx.request.body;
 
-    if (!token_ws || !purchase_intent_id) {
+    if (!token_ws || !purchase_intent_id || !buyer_email) {
       ctx.status = 400;
-      ctx.body = { error: "token_ws y purchase_intent_id son requeridos" };
+      ctx.body = {
+        error: "token_ws, purchase_intent_id y buyer_email son requeridos"
+      };
       return;
     }
-
     const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
     if (!intent) {
       ctx.status = 404;
       ctx.body = { error: "Intent no encontrado" };
       return;
     }
-
-    // Validar es del admin
+  
     const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
     const adminEmails = adminUsers.map(a => a.email.toLowerCase());
 
@@ -858,7 +860,6 @@ router.post("/commit-resell", authenticate, async (ctx) => {
       return;
     }
 
-    // Confirmar webpay
     const confirmedTx = await tx.commit(String(token_ws));
     if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
       ctx.status = 400;
@@ -866,23 +867,20 @@ router.post("/commit-resell", authenticate, async (ctx) => {
       return;
     }
 
-    const buyerEmail = ctx.state.user.email;
-    intent.email = buyerEmail;
+    intent.email = buyer_email;
     intent.status = "ACCEPTED";
-    intent.updatedAt = new Date(); 
+    intent.updatedAt = new Date();
     await intent.save();
 
     const property = await ctx.orm.Propertie.findByPk(intent.propertieId);
 
-    if (!LAMBDA_URL) {
-      console.error("❌ LAMBDA_URL no está definido en env");
-    } else {
+    if (LAMBDA_URL) {
       try {
         const payload = {
           groupName: "Grupo 11",
           user: {
-            name: buyerEmail.split("@")[0],
-            email: buyerEmail,
+            name: buyer_email.split("@")[0],
+            email: buyer_email,
           },
           purchase: {
             id: intent.id,
@@ -895,19 +893,13 @@ router.post("/commit-resell", authenticate, async (ctx) => {
           },
         };
 
-        console.log("🟢 Enviando payload a Lambda (reventa):", payload);
-
         const lambdaRes = await axios.post(LAMBDA_URL, payload, { timeout: 15000 });
         const receiptUrl = lambdaRes.data?.url;
 
         if (receiptUrl) {
-          intent.receipt_url = receiptUrl; 
+          intent.receipt_url = receiptUrl;
           await intent.save();
-          console.log(`Nueva boleta generada en reventa: ${receiptUrl}`);
-        } else {
-          console.warn("Lambda no devolvió URL de boleta en reventa");
         }
-
       } catch (err) {
         console.error("Error generando boleta en reventa:", err.response?.data || err.message);
       }
@@ -915,13 +907,11 @@ router.post("/commit-resell", authenticate, async (ctx) => {
 
     try {
       await axios.post(`${process.env.NOTIFY_SERVICE_URL}/send-email`, {
-        to: buyerEmail,
+        to: buyer_email,
         subject: "Compra de agendamiento confirmada (Reventa)",
-        body: `Hola ${buyerEmail.split("@")[0]}, 
-          Has comprado exitosamente una visita a la propiedad ${property?.name}.
-          Tu boleta ya está disponible: ${intent.receipt_url}`,
+        body: `Hola ${buyer_email.split("@")[0]},
+Has comprado exitosamente una visita a la propiedad ${property?.name}.`,
       });
-      console.log("Email enviado al comprador.");
     } catch (err) {
       console.error("Error enviando email de reventa:", err.message);
     }
@@ -929,7 +919,7 @@ router.post("/commit-resell", authenticate, async (ctx) => {
     ctx.body = {
       message: "Reventa confirmada correctamente",
       purchase_intent_id,
-      new_owner: buyerEmail,
+      new_owner: buyer_email,
       receipt_url: intent.receipt_url,
     };
 

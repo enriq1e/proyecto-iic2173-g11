@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: auth_service
-    command: sh -c "npx sequelize-cli db:migrate && node src/auth/app.js"
+    command: sh -c "node src/auth/app.js"
     ports:
       - "4000:4000"
     depends_on:
@@ -23,12 +23,13 @@ services:
       JWT_SECRET: "${JWT_SECRET}"
     restart: unless-stopped
 
-  # Servicio API principal
+  # Servicio API principal (único que migra)
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: api_service
+    # ✔ SOLO AQUÍ MIGRAMOS Y SEMBRAMOS
     command: sh -c "npx sequelize-cli db:migrate && npx sequelize-cli db:seed:all && node -r newrelic src/api/index.js"
     ports:
       - "3001:3001"
@@ -46,9 +47,9 @@ services:
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
-    restart: unless-stopped   #RNF10
+    restart: unless-stopped
 
-  # Servicio API réplica 1 (para balanceo de carga)
+  # Servicio API réplica 1 (no migra)
   api-1:
     build:
       context: .
@@ -72,7 +73,7 @@ services:
       DB_PASSWORD: "${DB_PASS}"
       DB_NAME: "${DB_NAME}"
 
-  # Servicio API réplica 2 (para balanceo de carga)
+  # Servicio API réplica 2 (no migra)
   api-2:
     build:
       context: .
@@ -112,8 +113,8 @@ services:
       - .env
     environment:
       ROLE: "broker"
-    restart: unless-stopped   #RNF10
-    
+    restart: unless-stopped
+
   db:
     image: postgres:13-alpine
     container_name: db_service
@@ -130,7 +131,7 @@ services:
       POSTGRES_DB: "${DB_NAME}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped   #RNF10
+    restart: unless-stopped
 
 volumes:
   postgres_data:

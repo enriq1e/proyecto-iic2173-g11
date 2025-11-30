@@ -11,9 +11,6 @@ module.exports = {
       status:         { type: Sequelize.STRING, allowNull: false, defaultValue: 'PENDING' },
       price_amount:   { type: Sequelize.DECIMAL(18,2), allowNull: false },
       price_currency: { type: Sequelize.STRING, allowNull: false, defaultValue: 'CLP' },
-      custom_price_amount: { type: Sequelize.DECIMAL(18,2), allowNull: true },
-      //lo cambie porque no me funcionaba bien al migrar
-      //custom_price_amount: { type: DataTypes.DECIMAL(18,2), allowNull: true },
       email:          { type: Sequelize.STRING, allowNull: false },
 
       propertieId: {

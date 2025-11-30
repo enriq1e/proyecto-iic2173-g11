@@ -795,7 +795,6 @@ router.post("/resell-intent", authenticate, async (ctx) => {
       return;
     }
 
-    // Validar que es del admin
     const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
     const adminEmails = adminUsers.map(a => a.email.toLowerCase());
 
@@ -804,12 +803,12 @@ router.post("/resell-intent", authenticate, async (ctx) => {
       ctx.body = { error: "Este intent no pertenece al admin, no es reventa" };
       return;
     }
+    intent.status = "PENDING";
+    await intent.save();
 
     const price = Number(intent.custom_price_amount || Number(intent.price_amount) * 0.1);
-    const request_id = intent.request_id || randomUUID();
     const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}`;
 
-    // Crear transacción Webpay
     const trx = await tx.create(
       String(intent.propertieId),
       "g11-business",
@@ -821,7 +820,8 @@ router.post("/resell-intent", authenticate, async (ctx) => {
       message: "Reventa iniciada",
       deposit_url: trx.url,
       deposit_token: trx.token,
-      request_id,
+      request_id: intent.request_id,
+      purchase_intent_id: intent.id,
     };
     ctx.status = 201;
   } catch (err) {
@@ -842,93 +842,72 @@ router.post("/commit-resell", async (ctx) => {
       };
       return;
     }
+    const intent = await ctx.orm.PurchaseIntent.findOne({
+      where: {
+        id: purchase_intent_id,
+        status: "PENDING"
+      }
+    });
 
-    const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
     if (!intent) {
-      ctx.status = 404;
-      ctx.body = { error: "Intent no encontrado" };
-      return;
-    }
-
-    const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
-    const adminEmails = adminUsers.map((a) => a.email.toLowerCase());
-
-    if (!adminEmails.includes(intent.email.toLowerCase())) {
       ctx.status = 400;
-      ctx.body = {
-        error: "Este intent no pertenece al admin. No es reventa.",
-      };
+      ctx.body = { error: "Intent inválido o ya procesado" };
       return;
     }
 
     const confirmedTx = await tx.commit(String(token_ws));
+
     if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
       ctx.status = 400;
       ctx.body = { error: "Transacción rechazada por Webpay" };
       return;
     }
 
-    const buyerEmail = buyer_email;
-    intent.email = buyerEmail;
+    intent.email = buyer_email;
     intent.status = "ACCEPTED";
     intent.updatedAt = new Date();
     await intent.save();
 
     const property = await ctx.orm.Propertie.findByPk(intent.propertieId);
 
-    if (!LAMBDA_URL) {
-      console.error("❌ LAMBDA_URL no está definido en env");
-    } else {
+    if (LAMBDA_URL) {
       try {
         const payload = {
           groupName: "Grupo 11",
           user: {
-            name: buyerEmail.split("@")[0],
-            email: buyerEmail,
+            name: buyer_email.split("@")[0],
+            email: buyer_email,
           },
           purchase: {
             id: intent.id,
             propertyName: property?.name || "Propiedad",
             propertyUrl: property?.url || "",
-            amount:
-              intent.custom_price_amount ||
-              Number(intent.price_amount) * 0.1,
+            amount: intent.custom_price_amount || Number(intent.price_amount) * 0.1,
             currency: intent.price_currency || "CLP",
             status: "ACCEPTED",
             date: new Date().toISOString(),
           },
         };
 
-        console.log("🟢 Enviando payload a Lambda (reventa):", payload);
-
-        const lambdaRes = await axios.post(LAMBDA_URL, payload, {
-          timeout: 15000,
-        });
+        const lambdaRes = await axios.post(LAMBDA_URL, payload, { timeout: 15000 });
         const receiptUrl = lambdaRes.data?.url;
 
         if (receiptUrl) {
           intent.receipt_url = receiptUrl;
           await intent.save();
-          console.log(`Nueva boleta generada en reventa: ${receiptUrl}`);
-        } else {
-          console.warn("Lambda no devolvió URL de boleta en reventa");
         }
       } catch (err) {
-        console.error(
-          "Error generando boleta en reventa:",
-          err.response?.data || err.message
-        );
+        console.error("Error generando boleta en reventa:", err.message);
       }
     }
 
     try {
       await axios.post(`${process.env.NOTIFY_SERVICE_URL}/send-email`, {
-        to: buyerEmail,
+        to: buyer_email,
         subject: "Compra de agendamiento confirmada (Reventa)",
-        body: `Hola ${buyerEmail.split("@")[0]}, 
+        body: `Hola ${buyer_email.split("@")[0]},
 Has comprado exitosamente una visita a la propiedad ${property?.name}.`,
       });
-      console.log("Email enviado al comprador.");
     } catch (err) {
       console.error("Error enviando email de reventa:", err.message);
     }
@@ -936,10 +915,10 @@ Has comprado exitosamente una visita a la propiedad ${property?.name}.`,
     ctx.body = {
       message: "Reventa confirmada correctamente",
       purchase_intent_id,
-      new_owner: buyerEmail,
+      new_owner: buyer_email,
       receipt_url: intent.receipt_url,
     };
-    
+
   } catch (err) {
     console.error("Error en /commit-resell:", err);
     ctx.status = 500;

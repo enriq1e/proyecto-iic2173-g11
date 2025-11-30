@@ -831,7 +831,7 @@ router.post("/resell-intent", authenticate, async (ctx) => {
   }
 });
 
-router.post("/commit-resell", authenticate, async (ctx) => {
+router.post("/commit-resell", async (ctx) => {
   try {
     const { token_ws, purchase_intent_id } = ctx.request.body;
 

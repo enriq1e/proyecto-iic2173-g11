@@ -137,7 +137,7 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
 
 // POST /auctions/offers
 // El admin publica una oferta de visitas para subastar a otros grupos
-router.post("/offers", authenticate, isAdmin, async (ctx) => {
+router.post("/offers", isAdmin, async (ctx) => {
   const { url, quantity } = ctx.request.body || {};
 
   if (!url || !quantity) {
@@ -164,7 +164,7 @@ router.post("/offers", authenticate, isAdmin, async (ctx) => {
 // POST /auctions/proposals
 // El admin responde a la oferta de otro grupo con una proposal
 // body: { auction_id, url, quantity }
-router.post("/proposals", authenticate, isAdmin, async (ctx) => {
+router.post("/proposals", isAdmin, async (ctx) => {
   const { auction_id, url, quantity } = ctx.request.body || {};
 
   if (!auction_id || !url || !quantity) {

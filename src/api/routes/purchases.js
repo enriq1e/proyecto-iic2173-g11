@@ -780,6 +780,7 @@ router.get("/:id", authenticate, async (ctx) => {
 router.post("/resell-intent", authenticate, async (ctx) => {
   try {
     const { purchase_intent_id } = ctx.request.body;
+    const buyerEmail = ctx.state.user.email; // comprador real
 
     if (!purchase_intent_id) {
       ctx.status = 400;
@@ -788,42 +789,43 @@ router.post("/resell-intent", authenticate, async (ctx) => {
     }
 
     const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
-
     if (!intent) {
       ctx.status = 404;
       ctx.body = { error: "Intent no encontrado" };
       return;
     }
 
+    // Validar que pertenece al admin
     const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
-    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+    const adminEmails = adminUsers.map(u => u.email.toLowerCase());
 
     if (!adminEmails.includes(intent.email.toLowerCase())) {
       ctx.status = 400;
       ctx.body = { error: "Este intent no pertenece al admin, no es reventa" };
       return;
     }
-    intent.status = "PENDING";
-    await intent.save();
 
     const price = Number(intent.custom_price_amount || Number(intent.price_amount) * 0.1);
-    const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}`;
+    const request_id = intent.request_id || randomUUID();
+
+    // RETORNO QUE INCLUYE EL EMAIL DEL COMPRADOR
+    const returnUrl = `${process.env.FRONT_URL}/admin-sale-completed?purchase_intent_id=${intent.id}&buyer_email=${buyerEmail}`;
 
     const trx = await tx.create(
       String(intent.propertieId),
       "g11-business",
       Math.round(price, 0),
-      returnUrl 
+      returnUrl
     );
 
     ctx.body = {
       message: "Reventa iniciada",
       deposit_url: trx.url,
       deposit_token: trx.token,
-      request_id: intent.request_id,
-      purchase_intent_id: intent.id,
+      request_id,
     };
     ctx.status = 201;
+
   } catch (err) {
     console.error("Error en reventa:", err);
     ctx.status = 500;
@@ -838,25 +840,27 @@ router.post("/commit-resell", async (ctx) => {
     if (!token_ws || !purchase_intent_id || !buyer_email) {
       ctx.status = 400;
       ctx.body = {
-        error: "token_ws, purchase_intent_id y buyer_email son requeridos",
+        error: "token_ws, purchase_intent_id y buyer_email son requeridos"
       };
       return;
     }
-    const intent = await ctx.orm.PurchaseIntent.findOne({
-      where: {
-        id: purchase_intent_id,
-        status: "PENDING"
-      }
-    });
-
+    const intent = await ctx.orm.PurchaseIntent.findByPk(purchase_intent_id);
     if (!intent) {
+      ctx.status = 404;
+      ctx.body = { error: "Intent no encontrado" };
+      return;
+    }
+  
+    const adminUsers = await ctx.orm.User.findAll({ where: { role: "admin" } });
+    const adminEmails = adminUsers.map(a => a.email.toLowerCase());
+
+    if (!adminEmails.includes(intent.email.toLowerCase())) {
       ctx.status = 400;
-      ctx.body = { error: "Intent inválido o ya procesado" };
+      ctx.body = { error: "Este intent no pertenece al admin. No es reventa." };
       return;
     }
 
     const confirmedTx = await tx.commit(String(token_ws));
-
     if (!confirmedTx || Number(confirmedTx.response_code) !== 0) {
       ctx.status = 400;
       ctx.body = { error: "Transacción rechazada por Webpay" };
@@ -882,7 +886,7 @@ router.post("/commit-resell", async (ctx) => {
             id: intent.id,
             propertyName: property?.name || "Propiedad",
             propertyUrl: property?.url || "",
-            amount: intent.custom_price_amount || Number(intent.price_amount) * 0.1,
+            amount: intent.custom_price_amount || (Number(intent.price_amount) * 0.1),
             currency: intent.price_currency || "CLP",
             status: "ACCEPTED",
             date: new Date().toISOString(),
@@ -897,7 +901,7 @@ router.post("/commit-resell", async (ctx) => {
           await intent.save();
         }
       } catch (err) {
-        console.error("Error generando boleta en reventa:", err.message);
+        console.error("Error generando boleta en reventa:", err.response?.data || err.message);
       }
     }
 
@@ -925,5 +929,6 @@ Has comprado exitosamente una visita a la propiedad ${property?.name}.`,
     ctx.body = { error: "Error interno del servidor" };
   }
 });
+
 
 module.exports = router;

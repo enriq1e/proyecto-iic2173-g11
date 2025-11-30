@@ -4,6 +4,7 @@ const { koaBody } = require("koa-body");
 const cors = require("@koa/cors");
 const router = require("./routes.js");
 const orm = require("../models");
+const { version } = require("./utils/version");
 
 const app = new Koa();
 app.context.orm = orm;
@@ -30,6 +31,19 @@ app.use(async (ctx, next) => {
 app.use(async (ctx, next) => {
   if (ctx.method === 'OPTIONS') {
     ctx.status = 204;
+    return;
+  }
+  await next();
+});
+
+// Endpoint básico para exponer la versión del deploy
+app.use(async (ctx, next) => {
+  if (ctx.path === "/version" && ctx.method === "GET") {
+    ctx.status = 200;
+    ctx.body = {
+      name: "proyectoarquisis-backend",
+      version,
+    };
     return;
   }
   await next();

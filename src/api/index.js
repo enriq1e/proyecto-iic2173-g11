@@ -11,6 +11,7 @@ try {
 }
 const app = require("./app");
 const db = require("../models");
+const { version } = require("./utils/version");
 
 const PORT = process.env.PORT || 3001;
 
@@ -18,6 +19,7 @@ db.sequelize
     .authenticate()
     .then(() => {
         console.log("Conexion con la base de datos exitosa");
+        console.log(`Backend version: ${version}`);
         app.listen(PORT, (err) => {
             if (err) {
                 return console.error("Fallo", err);

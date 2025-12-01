@@ -247,9 +247,74 @@ router.post("/proposals/:id/accept", authenticate, isAdmin, async (ctx) => {
       resolution: "acceptance",
     });
 
+    // --- Actualizar estados en DB: marcar la proposal aceptada y rechazar las demás
+    try {
+      // extraer auction_id y proposal_id desde proposalEvent.raw (tolerante a string/obj)
+      let auctionId = null;
+      let proposalId = null;
+      const raw = proposalEvent.raw;
+      if (raw) {
+        if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw);
+            auctionId = parsed?.auction_id || null;
+            proposalId = parsed?.proposal_id || null;
+          } catch (e) {
+            // ignore parse error
+          }
+        } else if (typeof raw === 'object') {
+          auctionId = raw.auction_id || null;
+          proposalId = raw.proposal_id || null;
+        }
+      }
+
+      if (auctionId && proposalId) {
+        const proposals = await ctx.orm.EventLog.findAll({
+          where: {
+            event_type: 'AUCTION',
+            operation: 'proposal',
+            raw: {auction_id: auctionId}
+          },
+        });
+
+        for (const ev of proposals) {
+          if (!ev.raw) continue;
+
+          let evAuctionId = null;
+          let evProposalId = null;
+          if (typeof ev.raw === 'string') {
+            try {
+              const parsed = JSON.parse(ev.raw);
+              evAuctionId = parsed?.auction_id || null;
+              evProposalId = parsed?.proposal_id || null;
+            } catch (e) {
+              continue;
+            }
+          } else if (typeof ev.raw === 'object') {
+            evAuctionId = ev.raw.auction_id || null;
+            evProposalId = ev.raw.proposal_id || null;
+          }
+
+          if (!evAuctionId || evAuctionId !== auctionId) continue;
+
+          if (String(evProposalId) === String(proposalId)) {
+            if (ev.status !== 'ACCEPTED') {
+              ev.status = 'ACCEPTED';
+              await ev.save();
+            }
+          } else if (!ev.status || ev.status === 'PENDING') {
+            ev.status = 'REJECTED';
+            await ev.save();
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[AUCTIONS] Error actualizando estados tras accept:', e);
+    }
+
     // TODO (opcional): aquí podrías actualizar tus reservas internas
     // sumando/restando quantity según la regla del enunciado.
-
+    
     ctx.status = 200;
     ctx.body = {
       message: "Proposal aceptada y enviada al broker",
@@ -281,6 +346,16 @@ router.post("/proposals/:id/reject", authenticate, isAdmin, async (ctx) => {
       proposalEvent,
       resolution: "rejection",
     });
+
+    // Marcar esta proposal como REJECTED en la DB
+    try {
+      if (proposalEvent.status !== 'REJECTED') {
+        proposalEvent.status = 'REJECTED';
+        await proposalEvent.save();
+      }
+    } catch (e) {
+      console.error('[AUCTIONS] Error marcando proposal como REJECTED en /reject:', e);
+    }
 
     ctx.status = 200;
     ctx.body = {

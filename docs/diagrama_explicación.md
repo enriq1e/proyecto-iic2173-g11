@@ -38,3 +38,12 @@ Además, este proceso activa el servicio de generación de boletas en AWS Lambda
 - JobsMaster y Workers: \
 El servicio JobsMaster se encarga de la orquestación de tareas de backend, como envío de correos, generación de reportes o boletas y validación de datos.
 Las tareas son colocadas en una cola (Queue), donde son consumidas por Workers distribuidos que ejecutan los trabajos de forma asíncrona.
+
+- Amazon SES (Notificacion por Email)\
+Notifica una compra validada al usuario.
+
+- IaaC Terraform:\
+Despliegues consistentes y control de versiones de la infraestructura.
+
+- Semantic Versioning:\
+Controla releases del backend, automatiza despliegues desde CI/CD e identifica cambios, nuevos features o fixes. Trabaja junto con el pipeline CI/CD para etiquetar versiones estables.

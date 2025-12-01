@@ -132,7 +132,7 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
         topic: TOPIC_AUCTIONS,
         event_type: 'AUCTION',
         operation: 'proposal',
-        url: propertyUrl || property.img,
+        url: property.img,
         status: { [ctx.orm.Sequelize.Op.ne]: 'REJECTED' },
       },
       order: [["timestamp", "DESC"]],

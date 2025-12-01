@@ -127,16 +127,29 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
     const properties = await ctx.orm.Propertie.findAll({ where: { url: propertyUrl } });
     const property = properties && properties.length > 0 ? properties[0] : null;
 
-    const proposals = await ctx.orm.EventLog.findAll({
-      where: {
+      // Construir cláusula WHERE para buscar por propertyUrl y, si existe,
+      // también por property.img -> (url = propertyUrl OR url = property.img)
+      const whereClause = {
         topic: TOPIC_AUCTIONS,
         event_type: 'AUCTION',
         operation: 'proposal',
-        url: property.img,
         status: { [ctx.orm.Sequelize.Op.ne]: 'REJECTED' },
-      },
-      order: [["timestamp", "DESC"]],
-    });
+      };
+
+      if (property && property.img) {
+        // buscar por url igual a propertyUrl OR igual a property.img
+        whereClause[ctx.orm.Sequelize.Op.or] = [
+          { url: propertyUrl },
+          { url: property.img },
+        ];
+      } else {
+        whereClause.url = propertyUrl;
+      }
+
+      const proposals = await ctx.orm.EventLog.findAll({
+        where: whereClause,
+        order: [["timestamp", "DESC"]],
+      });
     // Al devolver, ajustamos el field `url` del event para que use la URL de la
     // `property` (si existe) o, si no hay URL, usamos `property.img` cuando aplique.
     const result = proposals.map((p) => {

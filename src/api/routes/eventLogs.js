@@ -167,23 +167,10 @@ async function applyAuctionAcceptance(ctx, acceptanceEvent) {
     await subtractOffers(proposalUrl, proposalquantity);
   }
 
-  // Marcar todas las proposals del mismo auction_id: la seleccionada como ACCEPTED,
-  // las demás que estén en PENDING o sin estado pasarán a REJECTED.
-  // Hacemos esto de forma global en la base de datos para mantener consistencia
-  // independientemente de si nuestro grupo fue el offer o el proposal.
-  for (const ev of allProposals) {
-    if (!ev.raw || ev.raw.auction_id !== auctionId) continue;
-
-    if (ev.id === proposalEvent.id) {
-      if (ev.status !== "ACCEPTED") {
-        ev.status = "ACCEPTED";
-        await ev.save();
-      }
-    } else if (!ev.status || ev.status === "PENDING") {
-      ev.status = "REJECTED";
-      await ev.save();
-    }
-  }
+  // NOTE: proposal status updates (ACCEPTED/REJECTED) are handled by the
+  // POST /event-logs caller after applyAuctionAcceptance completes. This
+  // keeps the side-effect logic centralized and consistent with the
+  // rejection handler that lives in the POST route.
 
   console.log("[AUCTIONS] applyAuctionAcceptance terminado OK");
 }
@@ -224,6 +211,78 @@ router.post('/', async (ctx) => {
       } catch (e) {
         console.error("[AUCTIONS] Error aplicando RF06 en acceptance:", e);
         // No rompemos el POST /event-logs por esto, solo lo dejamos logueado
+      }
+    }
+    // Después de aplicar la lógica de acceptance, marcamos las proposals
+    // relacionadas: la proposal aceptada pasa a ACCEPTED y las demás
+    // proposals del mismo auction_id que estén PENDING pasan a REJECTED.
+    if (
+      row.topic === TOPIC_AUCTIONS &&
+      row.event_type === "AUCTION" &&
+      row.operation === "acceptance"
+    ) {
+      try {
+        // extraer auction_id y proposal_id desde row.raw
+        let auctionId = null;
+        let acceptedProposalId = null;
+        if (row.raw) {
+          if (typeof row.raw === 'string') {
+            try {
+              const parsed = JSON.parse(row.raw);
+              auctionId = parsed?.auction_id || null;
+              acceptedProposalId = parsed?.proposal_id || null;
+            } catch (e) {
+              auctionId = null;
+              acceptedProposalId = null;
+            }
+          } else if (typeof row.raw === 'object') {
+            auctionId = row.raw.auction_id || null;
+            acceptedProposalId = row.raw.proposal_id || null;
+          }
+        }
+
+        if (auctionId && acceptedProposalId) {
+          const allProposals = await ctx.orm.EventLog.findAll({
+            where: {
+              topic: TOPIC_AUCTIONS,
+              event_type: 'AUCTION',
+              operation: 'proposal',
+            },
+          });
+
+          for (const ev of allProposals) {
+            if (!ev.raw) continue;
+
+            let evAuctionId = null;
+            let evProposalId = null;
+            if (typeof ev.raw === 'string') {
+              try {
+                const parsed = JSON.parse(ev.raw);
+                evAuctionId = parsed?.auction_id || null;
+                evProposalId = parsed?.proposal_id || null;
+              } catch (e) {
+                continue;
+              }
+            } else if (typeof ev.raw === 'object') {
+              evAuctionId = ev.raw.auction_id || null;
+              evProposalId = ev.raw.proposal_id || null;
+            }
+
+            if (!evAuctionId || evAuctionId !== auctionId) continue;
+
+            if (String(evProposalId) === String(acceptedProposalId)) {
+              if (ev.status !== 'ACCEPTED') {
+                ev.status = 'ACCEPTED';
+                await ev.save();
+              }
+            } else if (!ev.status || ev.status === 'PENDING') {
+              ev.status = 'REJECTED';
+              await ev.save();
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[AUCTIONS] Error marcando proposals después de acceptance:', e);
       }
     }
 

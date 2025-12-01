@@ -273,6 +273,7 @@ router.post("/proposals/:id/accept", authenticate, isAdmin, async (ctx) => {
           where: {
             event_type: 'AUCTION',
             operation: 'proposal',
+            raw: {auction_id: auctionId}
           },
         });
 

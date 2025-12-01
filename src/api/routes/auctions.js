@@ -122,20 +122,31 @@ router.get("/proposals-url", authenticate, isAdmin, async (ctx) => {
     }
 
     const propertyUrl = decodeURIComponent(rawUrl);
+    // Obtener todas las propiedades que coincidan (normalmente será una),
+    // y usar la primera como referencia para los campos `url`/`img`.
+    const properties = await ctx.orm.Propertie.findAll({ where: { url: propertyUrl } });
+    const property = properties && properties.length > 0 ? properties[0] : null;
 
     const proposals = await ctx.orm.EventLog.findAll({
       where: {
         topic: TOPIC_AUCTIONS,
         event_type: 'AUCTION',
         operation: 'proposal',
-        url: propertyUrl,
+        url: propertyUrl || property.img,
         status: { [ctx.orm.Sequelize.Op.ne]: 'REJECTED' },
       },
       order: [["timestamp", "DESC"]],
     });
-    const property = await ctx.orm.Propertie.findOne({ where: { url: propertyUrl } });
-
-    const result = proposals.map((p) => ({ event: p, property: property || null }));
+    // Al devolver, ajustamos el field `url` del event para que use la URL de la
+    // `property` (si existe) o, si no hay URL, usamos `property.img` cuando aplique.
+    const result = proposals.map((p) => {
+      const ev = p.toJSON ? p.toJSON() : Object.assign({}, p);
+      if (property) {
+        // preferir property.url, si no existe intentar property.img
+        ev.url = property.url || property.img || ev.url;
+      }
+      return { event: ev, property: property || null };
+    });
 
     ctx.body = result;
   } catch (err) {

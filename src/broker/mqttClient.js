@@ -401,6 +401,7 @@ function sendAuctionOffer({ url, quantity }) {
 }
 
 function sendAuctionProposal({ auction_id, url, quantity }) {
+  
   const message = {
     auction_id,
     proposal_id: randomUUID(),
